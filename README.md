@@ -51,10 +51,10 @@ Set sensitive Vercel values for the **Production** environment only, never Previ
 
 | Name                             | Kind       | Where it's set                                                                  | Purpose                                                                                                                                                      |
 | -------------------------------- | ---------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GH_APP_ID`                      | Variable   | Vercel (Production)                                                             | _Planned._ GitHub App the portal uses to create and read issues                                                                                              |
-| `GH_APP_INSTALLATION_ID`         | Variable   | Vercel (Production)                                                             | _Planned._ That app's installation on the target repository                                                                                                  |
-| `GH_APP_PRIVATE_KEY`             | Secret     | Vercel (Production)                                                             | _Planned._ The app's private key (PEM; paste as-is in Vercel)                                                                                                |
-| `REQUEST_TARGET_REPO`            | Variable   | Vercel (Production)                                                             | _Planned._ Repository that receives requests (`owner/name`)                                                                                                  |
+| `GH_APP_ID`                      | Variable   | Vercel (Production)                                                             | GitHub App the portal uses to create and read issues                                                                                                         |
+| `GH_APP_INSTALLATION_ID`         | Variable   | Vercel (Production)                                                             | That app's installation on the target repository                                                                                                             |
+| `GH_APP_PRIVATE_KEY`             | Secret     | Vercel (Production)                                                             | The app's private key (PEM; paste as-is in Vercel)                                                                                                           |
+| `REQUEST_TARGET_REPO`            | Variable   | Vercel (Production)                                                             | Repository that receives requests (`owner/name`)                                                                                                             |
 | `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key | Vercel                                                                          | Cloudflare Turnstile widget; built into the page, so public by design                                                                                        |
 | `BOT_CHECK_SECRET_KEY`           | Secret     | Vercel (Production)                                                             | Server-side Turnstile verification                                                                                                                           |
 | `BOT_CHECK_HOSTNAMES`            | Variable   | Vercel (Production)                                                             | Comma-separated hostnames the widget may be served from. Required in production; elsewhere it defaults to the deployment or request host                     |
@@ -65,6 +65,22 @@ Set sensitive Vercel values for the **Production** environment only, never Previ
 | `LLM_MAX_TOKENS_PER_REQUEST`     | Variable   | Actions variables                                                               | _Planned._ Per-request token cap for agent runs                                                                                                              |
 | `APPROVER_ALLOWLIST`             | Variable   | Actions variables                                                               | _Planned._ GitHub usernames allowed to approve and steer the agents                                                                                          |
 | `CONTENT_POLICY_PATTERNS`        | Secret     | Actions secrets                                                                 | Private patterns for the content policy check. Required for pull requests within your own repository; pull requests from forks skip the check with a warning |
+
+### Setting up the GitHub App
+
+The portal creates and reads request issues as a GitHub App, so no personal token is involved.
+
+1. Create a GitHub App (Settings → Developer settings → GitHub Apps → New). Webhooks aren't needed: turn them off.
+2. Repository permissions, nothing else:
+   - **Issues:** Read and write (create request issues, read their status)
+   - **Pull requests:** Read-only, and **Deployments:** Read-only (the tracking page shows linked pull requests and preview links)
+   - **Metadata:** Read-only (required by GitHub)
+3. Install the App with **Only select repositories**, choosing just the repository that receives requests. In that repository, create the `portal-request` label (GitHub drops labels it can't apply without an error).
+4. Generate a private key, then set `GH_APP_ID`, `GH_APP_INSTALLATION_ID` (from the installation's URL), `GH_APP_PRIVATE_KEY` and `REQUEST_TARGET_REPO`.
+
+Each call uses a short-lived installation token narrowed to that one repository and the single permission it needs.
+
+If GitHub times out after creating an issue, the visitor sees an error and a retry can create a duplicate; maintainers can close duplicates.
 
 ## Contributing
 

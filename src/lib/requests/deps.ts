@@ -4,11 +4,13 @@
  */
 import { HttpError } from "@/lib/api/envelope";
 import { verifyTurnstileToken } from "@/lib/bot-check/turnstile";
+import { createRequestIssue } from "@/lib/github/issues";
 import {
   isProductionDeployment,
   isTestBotCheckSecret,
   readBotCheckHostnames,
   readBotCheckSecret,
+  readGitHubAppConfig,
 } from "@/lib/config";
 
 import type { BotCheck, SubmissionDeps } from "./submit";
@@ -35,6 +37,6 @@ export function getSubmissionDeps(): SubmissionDeps {
     assertWithinDailyCap: async () => unavailable(),
     storeScreenshot: async () => unavailable(),
     discardScreenshot: async () => {},
-    createRequestIssue: async () => unavailable(),
+    createRequestIssue: (input) => createRequestIssue(readGitHubAppConfig(), input),
   };
 }
