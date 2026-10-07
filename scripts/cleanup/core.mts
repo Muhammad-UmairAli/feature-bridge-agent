@@ -122,3 +122,23 @@ export function readPositiveInt(value: string | undefined, fallback: number, max
     throw new Error(`invalid number: ${value}`);
   return Number(value);
 }
+
+/**
+ * Start of the issue scan. A request's issue is created right after its
+ * screenshot is uploaded, so scanning from 7 days before the oldest stored
+ * file (or before the retention cutoff, if earlier) covers every issue that
+ * could link a file that still exists, even after the job was off for a while.
+ */
+export function issueScanSince(
+  blobs: StoredScreenshot[],
+  nowMs: number,
+  retentionDays: number,
+): Date {
+  const margin = 7 * DAY_MS;
+  const retentionCutoff = nowMs - retentionDays * DAY_MS;
+  const oldest = blobs.reduce((min, blob) => {
+    const uploaded = blob.uploadedAt.getTime();
+    return Number.isNaN(uploaded) ? min : Math.min(min, uploaded);
+  }, retentionCutoff);
+  return new Date(oldest - margin);
+}

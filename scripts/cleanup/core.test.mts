@@ -4,6 +4,7 @@ import { buildRequestIssue } from "@/lib/github/issues";
 
 import {
   type StoredScreenshot,
+  issueScanSince,
   linkedPathnames,
   normaliseNewlines,
   planCleanup,
@@ -104,5 +105,22 @@ describe("readPositiveInt", () => {
     expect(readPositiveInt("30", 90, 3650)).toBe(30);
     for (const bad of ["0", "-1", "1.5", "abc", "5000"])
       expect(() => readPositiveInt(bad, 90, 3650)).toThrow();
+  });
+});
+
+describe("issueScanSince", () => {
+  it("starts a week before the retention cutoff when all files are recent", () => {
+    expect(issueScanSince([shot(1, 3 * DAY)], NOW, 90).getTime()).toBe(NOW - 97 * DAY);
+  });
+
+  it("reaches back to a week before the oldest stored file (job was off for a while)", () => {
+    expect(issueScanSince([shot(1, 3 * DAY), shot(2, 150 * DAY)], NOW, 90).getTime()).toBe(
+      NOW - 157 * DAY,
+    );
+  });
+
+  it("ignores files with invalid dates", () => {
+    const invalid = { ...shot(3, 0), uploadedAt: new Date(Number.NaN) };
+    expect(issueScanSince([invalid], NOW, 90).getTime()).toBe(NOW - 97 * DAY);
   });
 });

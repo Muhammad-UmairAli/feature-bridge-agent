@@ -13,6 +13,7 @@ import { del, list } from "@vercel/blob";
 
 import {
   type StoredScreenshot,
+  issueScanSince,
   linkedPathnames,
   planCleanup,
   readPositiveInt,
@@ -22,7 +23,6 @@ import { executeCleanup } from "./execute.mts";
 import { type IssueSummary, getIssueBody, listIssuesSince, updateIssueBody } from "./github.mts";
 
 const MAX_LIST_PAGES = 100;
-const DAY_MS = 24 * 60 * 60 * 1000;
 let stage = "start";
 
 function report(
@@ -86,8 +86,8 @@ async function main(): Promise<number> {
   const blobs = await listScreenshots(blobToken);
 
   stage = "read_issues";
-  // Any issue that could still reference a stored file was updated within this window.
-  const since = new Date(nowMs - (retentionDays + 7) * DAY_MS).toISOString();
+  // Covers every issue that could link a file still in the store.
+  const since = issueScanSince(blobs, nowMs, retentionDays).toISOString();
   let issues: IssueSummary[] | null = null;
   try {
     issues = await listIssuesSince(repo, githubToken, since);
