@@ -24,6 +24,7 @@ const reply = {
 };
 
 const plan: Plan = parsePlan(JSON.stringify(reply)) as Plan;
+const HASH = "0123456789abcdef";
 
 describe("parsePlan", () => {
   it("parses a well-formed reply", () => {
@@ -95,9 +96,9 @@ describe("parsePlan", () => {
 
 describe("renderPlanComment", () => {
   it("starts with the hidden marker and puts every generated word inside a text fence", () => {
-    const comment = renderPlanComment({ plan, revision: 1, slug: "request-7" });
-    expect(comment.startsWith(planMarker(1))).toBe(true);
-    expect(PLAN_MARKER.exec(comment)?.[1]).toBe("1");
+    const comment = renderPlanComment({ plan, revision: 1, slug: "request-7", requestHash: HASH });
+    expect(comment.startsWith(planMarker(1, HASH))).toBe(true);
+    expect(PLAN_MARKER.exec(comment)?.slice(1)).toEqual(["1", HASH]);
     expect(comment).toContain("`/demos/request-7`");
     const fenced = comment.slice(comment.indexOf("```text"));
     expect(fenced).toContain("Counter demo");
@@ -111,7 +112,12 @@ describe("renderPlanComment", () => {
     const hostile = parsePlan(
       JSON.stringify({ ...reply, summary: "```` end fence then @maintainer #1 <img src=x>" }),
     ) as Plan;
-    const comment = renderPlanComment({ plan: hostile, revision: 2, slug: "request-7" });
+    const comment = renderPlanComment({
+      plan: hostile,
+      revision: 2,
+      slug: "request-7",
+      requestHash: HASH,
+    });
     expect(comment).toContain("`````text\n");
     expect(comment).toContain("(revision 2)");
     // The hostile text appears only after the opening fence.
@@ -123,6 +129,7 @@ describe("renderPlanComment", () => {
       plan: { ...plan, instructionsInRequest: true, concerns: ["Asked to edit workflows"] },
       revision: 1,
       slug: "request-7",
+      requestHash: HASH,
       notes: ["The screenshot has been removed."],
     });
     expect(comment).toContain("> **Note:** The screenshot has been removed.");

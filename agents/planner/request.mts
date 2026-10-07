@@ -6,6 +6,8 @@
  * screenshot link after the closing fence. Only that trailer is trusted for
  * the link: text inside the fence is the visitor's own.
  */
+import { createHash } from "node:crypto";
+
 import type { Issue } from "../lib/github.mts";
 
 export const LABELS = {
@@ -93,6 +95,10 @@ export function parseRequestBody(body: string): RequestBody | null {
     screenshotUrl: trailer.map(screenshotUrl).find((url) => url !== null) ?? null,
   };
 }
+
+/** A short fingerprint of the request text a plan was made from. */
+export const requestHash = (description: string) =>
+  createHash("sha256").update(description).digest("hex").slice(0, 16);
 
 export const codePoints = (text: string) => Array.from(text).length;
 

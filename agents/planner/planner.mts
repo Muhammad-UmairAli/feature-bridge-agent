@@ -19,6 +19,7 @@ import {
   demoSlug,
   isPortalIssue,
   parseRequestBody,
+  requestHash,
 } from "./request.mts";
 
 /** Comments made with the workflow's GITHUB_TOKEN are authored by this bot. */
@@ -128,7 +129,8 @@ export async function planRequest(
   }
 
   let llm: LlmClient | null = null;
-  let planPosted = false;
+  let plan: Plan;
+  let image = false;
   try {
     if (agentPlanComments(await github.listComments(number)).length > 0) {
       log("info", "planner.skipped", { issue: number, reason: "already_planned" });
@@ -159,31 +161,27 @@ export async function planRequest(
         "Screenshots aren't sent to the model on this deployment; this plan uses the description only.",
       );
     }
+    image = screenshotUrl !== null;
 
     const context = await deps.readContext();
     const slug = demoSlug(number);
     llm = deps.createLlm();
-    const plan = await askForPlan(
+    plan = await askForPlan(
       llm,
       buildPlanMessages({ description: request.description, slug, ...context, screenshotUrl }),
     );
-
-    await github.createComment(number, renderPlanComment({ plan, revision: 1, slug, notes }));
-    planPosted = true;
-    await github.removeLabel(number, LABELS.planning);
-    await github.addLabels(number, [LABELS.planReady]);
-    log("info", "planner.planned", {
-      issue: number,
-      files: plan.files.length,
-      tokens: llm.tokensUsed,
-      image: screenshotUrl !== null,
-      flaggedInstructions: plan.instructionsInRequest,
-    });
-    return "planned";
+    await github.createComment(
+      number,
+      renderPlanComment({
+        plan,
+        revision: 1,
+        slug,
+        requestHash: requestHash(request.description),
+        notes,
+      }),
+    );
   } catch (error) {
-    const { reason, text } = planPosted
-      ? { reason: "labels", text: "The plan was posted, but its labels couldn't be updated." }
-      : failureText(error);
+    const { reason, text } = failureText(error);
     log("error", "planner.failed", {
       issue: number,
       reason,
@@ -193,7 +191,7 @@ export async function planRequest(
       ...(llm ? { tokens: llm.tokensUsed } : {}),
     });
     // Best effort: each step is attempted even if an earlier one fails.
-    const steps = [
+    await bestEffort(log, number, [
       () =>
         github.createComment(
           number,
@@ -201,14 +199,44 @@ export async function planRequest(
         ),
       () => github.removeLabel(number, LABELS.planning),
       () => github.addLabels(number, [LABELS.needsHumanTriage]),
-    ];
-    for (const step of steps) {
-      try {
-        await step();
-      } catch {
-        log("error", "planner.cleanup_failed", { issue: number });
-      }
-    }
+    ]);
     return "failed";
   }
+
+  // The plan is public now: a label problem must not contradict it, so it only
+  // fails the run (which notifies the maintainer).
+  const labelled = await bestEffort(log, number, [
+    () => github.removeLabel(number, LABELS.planning),
+    () => github.addLabels(number, [LABELS.planReady]),
+  ]);
+  log(labelled ? "info" : "error", "planner.planned", {
+    issue: number,
+    files: plan.files.length,
+    tokens: llm.tokensUsed,
+    image,
+    flaggedInstructions: plan.instructionsInRequest,
+    labelled,
+  });
+  return labelled ? "planned" : "failed";
+}
+
+/** Run each step even if earlier ones fail; true when all succeeded. */
+async function bestEffort(
+  log: Log,
+  issue: number,
+  steps: (() => Promise<void>)[],
+): Promise<boolean> {
+  let ok = true;
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      ok = false;
+      log("error", "planner.cleanup_failed", {
+        issue,
+        ...(error instanceof GitHubApiError ? { status: error.status } : {}),
+      });
+    }
+  }
+  return ok;
 }

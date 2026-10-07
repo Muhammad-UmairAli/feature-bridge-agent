@@ -107,10 +107,15 @@ function fenceFor(text: string): string {
   return "`".repeat(Math.max(3, longestRun + 1));
 }
 
-/** Hidden marker identifying the agent's plan comments and their revision number. */
-export const PLAN_MARKER = /^<!-- feature-bridge-agent:plan revision=(\d+) -->/;
-export const planMarker = (revision: number) =>
-  `<!-- feature-bridge-agent:plan revision=${revision} -->`;
+/**
+ * Hidden marker identifying the agent's plan comments: the revision number and
+ * a hash of the request text the plan was made from, so later steps can tell
+ * when a plan no longer matches an edited request.
+ */
+export const PLAN_MARKER =
+  /^<!-- feature-bridge-agent:plan revision=(\d+)(?: request=([0-9a-f]{16}))? -->/;
+export const planMarker = (revision: number, requestHash?: string) =>
+  `<!-- feature-bridge-agent:plan revision=${revision}${requestHash ? ` request=${requestHash}` : ""} -->`;
 /** Hidden marker on the comment posted when planning stops. */
 export const STOPPED_MARKER = "<!-- feature-bridge-agent:planning-stopped -->";
 
@@ -118,11 +123,19 @@ export interface RenderInput {
   plan: Plan;
   revision: number;
   slug: string;
+  /** From `requestHash` in request.mts. */
+  requestHash: string;
   /** Notes written by the workflow itself (trusted text). */
   notes?: string[];
 }
 
-export function renderPlanComment({ plan, revision, slug, notes = [] }: RenderInput): string {
+export function renderPlanComment({
+  plan,
+  revision,
+  slug,
+  requestHash,
+  notes = [],
+}: RenderInput): string {
   const section = (heading: string, items: string[], numbered = false) =>
     items.length === 0
       ? []
@@ -150,7 +163,7 @@ export function renderPlanComment({ plan, revision, slug, notes = [] }: RenderIn
     );
   }
   return [
-    planMarker(revision),
+    planMarker(revision, requestHash),
     `### Implementation plan${revision > 1 ? ` (revision ${revision})` : ""}`,
     "",
     `Drafted by the planning agent for the demo route \`/demos/${slug}\`. The plan text is generated and unreviewed. A maintainer on the approver list can approve it with the \`approved-by-human\` label, or apply \`changes-requested\` and explain what to change in a comment.`,

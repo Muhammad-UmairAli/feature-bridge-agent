@@ -5,7 +5,14 @@ import { buildRequestIssue } from "@/lib/github/issues";
 import { LABELS as PORTAL_LABELS } from "@/lib/requests/labels";
 
 import type { Issue } from "../lib/github.mts";
-import { LABELS, codePoints, demoSlug, isPortalIssue, parseRequestBody } from "./request.mts";
+import {
+  LABELS,
+  codePoints,
+  demoSlug,
+  isPortalIssue,
+  parseRequestBody,
+  requestHash,
+} from "./request.mts";
 
 const SCREENSHOT =
   "https://abc123.public.blob.vercel-storage.com/screenshots/0b5f1a2e-3c4d-4e5f-8a9b-0c1d2e3f4a5b.png";
@@ -100,6 +107,14 @@ describe("parseRequestBody", () => {
     expect(parseRequestBody("no fence here")).toBeNull();
     expect(parseRequestBody("```text\nnever closed")).toBeNull();
     expect(parseRequestBody("```text\n  ​ \n```")).toBeNull();
+  });
+});
+
+describe("requestHash", () => {
+  it("is a stable 16-character fingerprint that changes with the text", () => {
+    expect(requestHash("Add a counter.")).toMatch(/^[0-9a-f]{16}$/);
+    expect(requestHash("Add a counter.")).toBe(requestHash("Add a counter."));
+    expect(requestHash("Add a counter!")).not.toBe(requestHash("Add a counter."));
   });
 });
 

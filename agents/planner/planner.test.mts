@@ -5,7 +5,7 @@ import { buildRequestIssue } from "@/lib/github/issues";
 
 import { type Comment, GitHubApiError, type GitHubClient, type Issue } from "../lib/github.mts";
 import { type ChatMessage, type ChatOptions, type LlmClient, LlmError } from "../lib/llm.mts";
-import { STOPPED_MARKER, planMarker } from "./plan.mts";
+import { PLAN_MARKER, STOPPED_MARKER, planMarker } from "./plan.mts";
 import { AGENT_LOGIN, type PlannerDeps, agentPlanComments, planRequest } from "./planner.mts";
 import { RETRY_INSTRUCTION } from "./prompt.mts";
 
@@ -123,7 +123,7 @@ describe("planRequest", () => {
     const t = setup(portalIssue());
     expect(await planRequest(settings, t.deps)).toBe("planned");
     expect(t.posted).toHaveLength(1);
-    expect(t.posted[0].startsWith(planMarker(1))).toBe(true);
+    expect(t.posted[0]).toMatch(PLAN_MARKER);
     expect(t.posted[0]).toContain("Counter demo");
     expect(t.events).toEqual(["+planning", "comment", "-planning", "+plan-ready"]);
     expect([...t.labels]).toEqual(["portal-request", "plan-ready"]);
@@ -239,12 +239,27 @@ describe("planRequest", () => {
     );
   });
 
-  it("says the plan was posted when only the label update fails", async () => {
+  it("doesn't contradict a posted plan when only the label update fails", async () => {
     const t = setup(portalIssue());
     t.github.removeLabel.mockRejectedValueOnce(new GitHubApiError("issues.removeLabel", 500));
     expect(await planRequest(settings, t.deps)).toBe("failed");
-    expect(t.posted).toHaveLength(2);
-    expect(t.posted[1]).toContain("The plan was posted, but its labels couldn't be updated.");
+    expect(t.posted).toHaveLength(1);
+    expect(t.labels.has("needs-human-triage")).toBe(false);
+    // The second label step still ran.
+    expect(t.labels.has("plan-ready")).toBe(true);
+    expect(t.log).toHaveBeenCalledWith(
+      "error",
+      "planner.planned",
+      expect.objectContaining({ labelled: false }),
+    );
+  });
+
+  it("records a fingerprint of the request text in the plan marker", async () => {
+    const t = setup(portalIssue());
+    await planRequest(settings, t.deps);
+    expect(t.posted[0]).toMatch(
+      /^<!-- feature-bridge-agent:plan revision=1 request=[0-9a-f]{16} -->/,
+    );
   });
 
   it("fails cleanly when the LLM settings are missing", async () => {
