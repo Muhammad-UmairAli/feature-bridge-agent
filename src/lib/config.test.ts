@@ -99,10 +99,11 @@ describe("readDailySubmissionCap", () => {
   it("defaults to 20 and accepts positive integers", () => {
     expect(readDailySubmissionCap({})).toBe(DEFAULT_DAILY_SUBMISSION_CAP);
     expect(readDailySubmissionCap({ DAILY_SUBMISSION_CAP: "50" })).toBe(50);
+    expect(readDailySubmissionCap({ DAILY_SUBMISSION_CAP: "1000" })).toBe(1000);
   });
 
   it("rejects zero, negatives and junk", () => {
-    for (const value of ["0", "-1", "abc", "1.5", "99999"]) {
+    for (const value of ["0", "-1", "abc", "1.5", "99999", "1001"]) {
       expectNotConfigured(
         () => readDailySubmissionCap({ DAILY_SUBMISSION_CAP: value }),
         "DAILY_SUBMISSION_CAP",

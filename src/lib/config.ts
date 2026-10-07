@@ -11,6 +11,7 @@ import { log } from "@/lib/log";
 type Env = Record<string, string | undefined>;
 
 export const DEFAULT_DAILY_SUBMISSION_CAP = 20;
+export const MAX_DAILY_SUBMISSION_CAP = 1000;
 
 function notConfigured(name: string): HttpError {
   log.error("config.invalid", { variable: name });
@@ -66,7 +67,10 @@ export function readGitHubAppConfig(env: Env = process.env): GitHubAppConfig {
 export function readDailySubmissionCap(env: Env = process.env): number {
   const raw = env.DAILY_SUBMISSION_CAP?.trim();
   if (!raw) return DEFAULT_DAILY_SUBMISSION_CAP;
-  if (!/^[1-9][0-9]{0,3}$/.test(raw)) throw notConfigured("DAILY_SUBMISSION_CAP");
+  // At most 1000, so counting fits comfortably within the daily-cap page limit.
+  if (!/^[1-9][0-9]{0,3}$/.test(raw) || Number(raw) > MAX_DAILY_SUBMISSION_CAP) {
+    throw notConfigured("DAILY_SUBMISSION_CAP");
+  }
   return Number(raw);
 }
 

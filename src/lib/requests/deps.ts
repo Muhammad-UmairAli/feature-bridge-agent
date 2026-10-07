@@ -5,11 +5,14 @@
 import { HttpError } from "@/lib/api/envelope";
 import { verifyTurnstileToken } from "@/lib/bot-check/turnstile";
 import { createRequestIssue } from "@/lib/github/issues";
+
+import { assertWithinDailyCap } from "./daily-cap";
 import {
   isProductionDeployment,
   isTestBotCheckSecret,
   readBotCheckHostnames,
   readBotCheckSecret,
+  readDailySubmissionCap,
   readGitHubAppConfig,
 } from "@/lib/config";
 
@@ -34,7 +37,8 @@ export function getBotCheck(requestHost: string | null, requestId?: string): Bot
 
 export function getSubmissionDeps(): SubmissionDeps {
   return {
-    assertWithinDailyCap: async () => unavailable(),
+    assertWithinDailyCap: () =>
+      assertWithinDailyCap(readGitHubAppConfig(), readDailySubmissionCap()),
     storeScreenshot: async () => unavailable(),
     discardScreenshot: async () => {},
     createRequestIssue: (input) => createRequestIssue(readGitHubAppConfig(), input),
