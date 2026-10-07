@@ -99,7 +99,8 @@ jobs:
           # Built-in rules only, from a path outside the checkout, so a PR
           # can't weaken the scan by adding its own .gitleaks.toml or .gitleaksignore.
           printf '[extend]\nuseDefault = true\n' > "$RUNNER_TEMP/gitleaks.toml"
+          : > "$RUNNER_TEMP/gitleaksignore" # empty: no findings are ignored
           "$RUNNER_TEMP/gitleaks" git . \
             --config "$RUNNER_TEMP/gitleaks.toml" \
-            --gitleaks-ignore-path "$RUNNER_TEMP" \
+            --gitleaks-ignore-path "$RUNNER_TEMP/gitleaksignore" \
             --redact --no-banner --exit-code 1
