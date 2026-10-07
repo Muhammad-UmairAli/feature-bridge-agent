@@ -8,9 +8,12 @@ use relative imports with explicit `.mts` extensions and can't import from `src/
 `@/*`. Keep them free of syntax that needs compiling (no enums, namespaces or
 parameter properties); `pnpm typecheck` enforces this.
 
-| Path          | What it does                                                                 |
-| ------------- | ---------------------------------------------------------------------------- |
-| `lib/llm.mts` | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run |
+| Path                | What it does                                                                 |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `lib/llm.mts`       | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run |
+| `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents             |
+| `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token            |
+| `planner/`          | Planning agent: posts an implementation plan on new portal requests          |
 
 ## Model configuration
 
@@ -41,3 +44,21 @@ optional, case-insensitive. Only accounts of type `User` match; bots, organizati
 list allows nobody, so a fork does nothing until its owner sets it. The workflows also
 check that the account still has triage access to the repository, because usernames can
 be freed and registered again.
+
+## Planning agent
+
+`planner/run.mts` plans one request issue (`ISSUE_NUMBER`). It acts only on open issues
+created by the portal's bot account (`PORTAL_BOT_LOGIN`, e.g. `your-app[bot]`) with the
+`portal-request` label, and only once per issue. The description is read from the
+issue's fenced block and given to the model as delimited data, never as instructions,
+along with `AGENTS.md` and the list of files under `src/`. The demo folder is
+`src/app/demos/request-<issue number>/`, assigned by the workflow.
+
+The plan is posted as one comment with every generated word inside a text fence, so it
+can't mention users, link issues or add formatting. Labels move from `planning` to
+`plan-ready`. If anything fails, including running out of token budget, the agent posts
+a short fixed comment and applies `needs-human-triage` instead. Runs for the same issue must
+not overlap; the workflow serialises them per issue.
+
+Screenshots are sent to the model only when `LLM_IMAGE_INPUT` is `on` (the model must
+accept images) and the stored file still exists.
