@@ -1,26 +1,22 @@
 /**
- * The production integrations for request submission. Until an integration is
- * implemented, its slot fails closed with NOT_CONFIGURED.
+ * The production integrations for request submission. Each one reads its
+ * configuration per call and fails closed (503 NOT_CONFIGURED) when it's missing.
  */
-import { HttpError } from "@/lib/api/envelope";
 import { verifyTurnstileToken } from "@/lib/bot-check/turnstile";
 import { createRequestIssue } from "@/lib/github/issues";
-
-import { assertWithinDailyCap } from "./daily-cap";
+import { discardScreenshot, storeScreenshot } from "@/lib/storage/screenshots";
 import {
   isProductionDeployment,
   isTestBotCheckSecret,
+  readBlobToken,
   readBotCheckHostnames,
   readBotCheckSecret,
   readDailySubmissionCap,
   readGitHubAppConfig,
 } from "@/lib/config";
 
+import { assertWithinDailyCap } from "./daily-cap";
 import type { BotCheck, SubmissionDeps } from "./submit";
-
-const unavailable = (): never => {
-  throw new HttpError(503, "NOT_CONFIGURED", "Submissions are not available yet.");
-};
 
 /** Turnstile verification for a request sent to `requestHost`. */
 export function getBotCheck(requestHost: string | null, requestId?: string): BotCheck {
@@ -39,8 +35,9 @@ export function getSubmissionDeps(): SubmissionDeps {
   return {
     assertWithinDailyCap: () =>
       assertWithinDailyCap(readGitHubAppConfig(), readDailySubmissionCap()),
-    storeScreenshot: async () => unavailable(),
-    discardScreenshot: async () => {},
+    // async, so a missing token rejects (503) instead of throwing synchronously
+    storeScreenshot: async (screenshot) => storeScreenshot(screenshot, readBlobToken()),
+    discardScreenshot: async (url) => discardScreenshot(url, readBlobToken()),
     createRequestIssue: (input) => createRequestIssue(readGitHubAppConfig(), input),
   };
 }

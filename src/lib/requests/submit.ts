@@ -54,7 +54,7 @@ export async function submitRequest(
     // Don't leave an orphaned public file behind when the request itself failed.
     if (screenshotUrl) {
       await deps.discardScreenshot(screenshotUrl).catch(() => {
-        log.warn("request.screenshot_discard_failed");
+        log.warn("request.screenshot_discard_failed", { path: new URL(screenshotUrl).pathname });
       });
     }
     throw error;

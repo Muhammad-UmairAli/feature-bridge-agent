@@ -8,6 +8,7 @@ import { BOT_CHECK_HEADER } from "@/lib/bot-check/turnstile-shared";
 import {
   DESCRIPTION_MAX_LENGTH,
   DESCRIPTION_MIN_LENGTH,
+  SCREENSHOT_CONSENT_REQUIRED,
   SCREENSHOT_MAX_BYTES,
   characterCount,
   normaliseDescription,
@@ -17,7 +18,11 @@ export const ACCEPTED_SCREENSHOT_TYPES = ["image/png", "image/jpeg", "image/webp
 
 export type FieldErrors = Partial<Record<"description" | "screenshot" | "botCheckToken", string>>;
 
-export function checkBeforeSubmit(description: string, screenshot: File | null): FieldErrors {
+export function checkBeforeSubmit(
+  description: string,
+  screenshot: File | null,
+  screenshotConsent = false,
+): FieldErrors {
   const errors: FieldErrors = {};
   const length = characterCount(normaliseDescription(description));
   if (length < DESCRIPTION_MIN_LENGTH) {
@@ -30,6 +35,8 @@ export function checkBeforeSubmit(description: string, screenshot: File | null):
       errors.screenshot = "Screenshots must be PNG, JPEG or WebP images.";
     } else if (screenshot.size > SCREENSHOT_MAX_BYTES) {
       errors.screenshot = "Screenshots must be 4 MB or smaller.";
+    } else if (!screenshotConsent) {
+      errors.screenshot = SCREENSHOT_CONSENT_REQUIRED;
     }
   }
   return errors;

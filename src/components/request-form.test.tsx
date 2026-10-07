@@ -92,6 +92,7 @@ describe("RequestForm", () => {
     fireEvent.change(description, { target: { value: VALID } });
     const png = new File([PNG_BYTES], "s.png", { type: "image/png" });
     fireEvent.change(screen.getByLabelText(/Screenshot/), { target: { files: [png] } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /will be public/ }));
     fireEvent.click(submitButton);
 
     expect(await screen.findByRole("button", { name: "Submitting…" })).toHaveAttribute(
@@ -252,5 +253,21 @@ describe("RequestForm", () => {
     fireEvent.click(submitButton);
     await screen.findByRole("alert");
     expect(turnstile.reset).toHaveBeenCalledWith("widget-1");
+  });
+
+  it("asks for the publish acknowledgement before uploading a screenshot", async () => {
+    const { submit, description, submitButton } = await renderForm({
+      kind: "created",
+      id: 1,
+      trackingUrl: "/requests/1",
+    });
+    fireEvent.change(description, { target: { value: VALID } });
+    const png = new File([PNG_BYTES], "s.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText(/^Screenshot/), { target: { files: [png] } });
+    fireEvent.click(submitButton);
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/^Screenshot/)).toHaveAccessibleDescription(
+      expect.stringMatching(/can be published/),
+    );
   });
 });

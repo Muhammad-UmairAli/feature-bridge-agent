@@ -7,6 +7,8 @@ import type { ErrorDetails } from "@/lib/api/envelope";
 export const DESCRIPTION_MIN_LENGTH = 20;
 export const DESCRIPTION_MAX_LENGTH = 5000;
 export const SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024;
+export const SCREENSHOT_CONSENT_REQUIRED =
+  "Confirm that the screenshot can be published, or remove it.";
 
 export type ScreenshotType = "image/png" | "image/jpeg" | "image/webp";
 
@@ -94,10 +96,12 @@ export async function validateSubmission(form: FormData): Promise<ValidationResu
     } else if (rawFile.size > 0) {
       const bytes = new Uint8Array(await rawFile.arrayBuffer());
       const type = detectScreenshotType(bytes);
-      if (type) {
-        screenshot = { bytes, ...type };
-      } else {
+      if (!type) {
         details.screenshot = "Screenshots must be PNG, JPEG or WebP images.";
+      } else if (form.get("screenshotConsent") !== "yes") {
+        details.screenshot = SCREENSHOT_CONSENT_REQUIRED;
+      } else {
+        screenshot = { bytes, ...type };
       }
     }
   }
