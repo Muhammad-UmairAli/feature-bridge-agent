@@ -66,7 +66,7 @@ describe("RequestForm", () => {
     expect(description).toHaveAccessibleDescription(
       expect.stringMatching(/at least 20 characters/),
     );
-    expect(description).toHaveFocus();
+    await waitFor(() => expect(description).toHaveFocus());
   });
 
   it("rejects an unsupported screenshot type before upload", async () => {
@@ -103,7 +103,9 @@ describe("RequestForm", () => {
     expect(token).toBe("XXXX.DUMMY.TOKEN.XXXX");
 
     await act(async () => resolve({ kind: "created", id: 42, trackingUrl: "/requests/42" }));
-    expect(screen.getByRole("heading", { name: "Request submitted" })).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Request submitted" })).toHaveFocus(),
+    );
     expect(screen.getByRole("link", { name: "Track request #42" })).toHaveAttribute(
       "href",
       "/requests/42",
@@ -123,7 +125,7 @@ describe("RequestForm", () => {
     fireEvent.click(submitButton);
     await waitFor(() => expect(description).toHaveAttribute("aria-invalid", "true"));
     expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
-    expect(description).toHaveFocus();
+    await waitFor(() => expect(description).toHaveFocus());
   });
 
   it("shows general failures in a focused alert and keeps the input", async () => {
@@ -135,7 +137,7 @@ describe("RequestForm", () => {
     fireEvent.click(submitButton);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Try again tomorrow.");
-    expect(alert).toHaveFocus();
+    await waitFor(() => expect(alert).toHaveFocus());
     expect(description).toHaveValue(VALID);
   });
 
@@ -188,7 +190,7 @@ describe("RequestForm", () => {
     fireEvent.change(description, { target: { value: VALID } });
     fireEvent.click(submitButton);
     fireEvent.click(await screen.findByRole("button", { name: "Submit another request" }));
-    expect(screen.getByLabelText("Describe the feature")).toHaveFocus();
+    await waitFor(() => expect(screen.getByLabelText("Describe the feature")).toHaveFocus());
   });
 
   it("lets the user remove an attached screenshot", async () => {
