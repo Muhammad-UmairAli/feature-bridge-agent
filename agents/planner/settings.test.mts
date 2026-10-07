@@ -21,6 +21,7 @@ describe("readPlannerSettings", () => {
         issueNumber: 7,
         portalBotLogin: "request-portal[bot]",
         imageInput: true,
+        mode: "plan",
       },
     });
     const read = readPlannerSettings({ ...env, LLM_IMAGE_INPUT: "yes" });
@@ -47,6 +48,39 @@ describe("readPlannerSettings", () => {
     expect(read.ok && read.warnings).toEqual([
       "PORTAL_BOT_LOGIN doesn't end in [bot], so no issue will match it",
     ]);
+  });
+});
+
+describe("readPlannerSettings in revise mode", () => {
+  const revise = { ...env, PLANNER_MODE: "revise" };
+
+  it("reads the allowlist", () => {
+    const read = readPlannerSettings({ ...revise, APPROVER_ALLOWLIST: "lead, @other" });
+    expect(read.ok && read.settings.mode).toBe("revise");
+    expect(read.ok && [...(read.settings.allowlist?.logins ?? [])]).toEqual(["lead", "other"]);
+    expect(read.ok && read.warnings).toEqual([]);
+  });
+
+  it("warns about an empty or partly invalid allowlist", () => {
+    const empty = readPlannerSettings(revise);
+    expect(empty.ok && empty.warnings).toEqual([
+      "APPROVER_ALLOWLIST is empty, so nobody can revise",
+    ]);
+    const partly = readPlannerSettings({ ...revise, APPROVER_ALLOWLIST: "lead, bad;name" });
+    expect(partly.ok && partly.warnings).toEqual(["APPROVER_ALLOWLIST has 1 invalid entries"]);
+  });
+
+  it("doesn't read or warn about the allowlist when planning", () => {
+    const read = readPlannerSettings({ ...env, APPROVER_ALLOWLIST: "bad;name" });
+    expect(read.ok && read.warnings).toEqual([]);
+    expect(read.ok && read.settings.allowlist).toBeUndefined();
+  });
+
+  it("requires a known mode", () => {
+    expect(readPlannerSettings({ ...env, PLANNER_MODE: "build" })).toEqual({
+      ok: false,
+      problems: ["PLANNER_MODE must be plan or revise"],
+    });
   });
 });
 

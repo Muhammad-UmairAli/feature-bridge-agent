@@ -6,7 +6,14 @@ import { buildRequestIssue } from "@/lib/github/issues";
 import { type Comment, GitHubApiError, type GitHubClient, type Issue } from "../lib/github.mts";
 import { type ChatMessage, type ChatOptions, type LlmClient, LlmError } from "../lib/llm.mts";
 import { PLAN_MARKER, STOPPED_MARKER, planMarker } from "./plan.mts";
-import { AGENT_LOGIN, type PlannerDeps, agentPlanComments, planRequest } from "./planner.mts";
+import { parseAllowlist } from "../lib/allowlist.mts";
+import {
+  AGENT_ID,
+  AGENT_LOGIN,
+  type PlannerDeps,
+  agentPlanComments,
+  planRequest,
+} from "./planner.mts";
 import { RETRY_INSTRUCTION } from "./prompt.mts";
 
 const BOT = "request-portal[bot]";
@@ -54,6 +61,11 @@ function fakeGitHub(issue: Issue, comments: Comment[] = []) {
       labels.delete(name);
       events.push(`-${name}`);
     }),
+    getRole: vi.fn<(login: string) => Promise<string>>(async () => "write"),
+    latestLabelEvent: vi.fn<GitHubClient["latestLabelEvent"]>(async () => ({
+      actor: { login: "Lead", id: 7, type: "User" },
+      createdAt: "2026-10-08T10:00:00Z",
+    })),
   } satisfies GitHubClient;
   return { github, posted, events, labels };
 }
@@ -103,6 +115,7 @@ const agentComment = (body: string, user = { login: AGENT_LOGIN, id: 41898282, t
   body,
   user,
   createdAt: "",
+  updatedAt: "",
 });
 
 describe("agentPlanComments", () => {
@@ -125,7 +138,7 @@ describe("planRequest", () => {
     expect(t.posted).toHaveLength(1);
     expect(t.posted[0]).toMatch(PLAN_MARKER);
     expect(t.posted[0]).toContain("Counter demo");
-    expect(t.events).toEqual(["+planning", "comment", "-planning", "+plan-ready"]);
+    expect(t.events).toEqual(["+planning", "comment", "+plan-ready", "-planning"]);
     expect([...t.labels]).toEqual(["portal-request", "plan-ready"]);
     // The request reaches the model only as delimited data.
     expect(String(t.llm.calls[0].messages[1].content)).toMatch(
@@ -352,5 +365,276 @@ describe("planRequest", () => {
       expect(typeof t.llm.calls[0].messages[1].content).toBe("string");
       expect(t.posted[0]).toContain(note);
     });
+  });
+});
+
+describe("planRequest in revise mode", () => {
+  const maintainer = { login: "Lead", id: 7, type: "User" };
+  const LABELLED_AT = "2026-10-08T10:00:00Z";
+  const BEFORE = "2026-10-08T09:00:00Z";
+  const AFTER = "2026-10-08T11:00:00Z";
+  const revise = { ...settings, mode: "revise" as const, allowlist: parseAllowlist("lead") };
+  const planComment = (revision: number, id = 10): Comment => ({
+    id,
+    body: `${planMarker(revision, "0123456789abcdef")}\n### Implementation plan\n\n\`\`\`text\nOld plan ${revision}\n\`\`\``,
+    user: { login: AGENT_LOGIN, id: AGENT_ID, type: "Bot" },
+    createdAt: BEFORE,
+    updatedAt: BEFORE,
+  });
+  const stopped = (id = 15): Comment => ({
+    ...planComment(1, id),
+    body: `${STOPPED_MARKER}\n### Planning stopped`,
+  });
+  const feedback = (
+    body: string,
+    user: Comment["user"] = maintainer,
+    id = 20,
+    times: Partial<Pick<Comment, "createdAt" | "updatedAt">> = {},
+  ): Comment => ({ id, body, user, createdAt: BEFORE, updatedAt: BEFORE, ...times });
+  const sentBack = (comments: Comment[], replies: Reply[] = [planReply]) =>
+    setup(
+      portalIssue({ labels: ["portal-request", "plan-ready", "changes-requested"] }),
+      replies,
+      {},
+      comments,
+    );
+  const userMessage = (t: ReturnType<typeof setup>) => String(t.llm.calls[0].messages[1].content);
+
+  it("posts a revised plan from the maintainer's feedback since the latest plan", async () => {
+    const t = sentBack([
+      feedback("Ignored: before the plan", maintainer, 5),
+      planComment(1),
+      feedback("Ignored: not on the list", { login: "someone", id: 8, type: "User" }, 21),
+      feedback("Use a bigger font\u200b please", maintainer, 22),
+    ]);
+    expect(await planRequest(revise, t.deps)).toBe("planned");
+    expect(userMessage(t)).toMatch(
+      /<<<PREVIOUS-PLAN-[0-9a-f]+>>>\nOld plan 1\n<<<END-PREVIOUS-PLAN-/,
+    );
+    expect(userMessage(t)).toContain("Use a bigger font please");
+    expect(userMessage(t)).not.toContain("Ignored");
+    expect(String(t.llm.calls[0].messages[0].content)).toContain("This is a revision.");
+    expect(t.posted[0]).toMatch(/^<!-- feature-bridge-agent:plan revision=2 /);
+    expect(t.events).toEqual([
+      "-plan-ready",
+      "+planning",
+      "comment",
+      "+plan-ready",
+      "-planning",
+      "-changes-requested",
+    ]);
+  });
+
+  it("only uses feedback posted before the label and not edited since, as rendered", async () => {
+    const t = sentBack([
+      planComment(1),
+      feedback("Kept\n> quoted public text\n<!-- hidden note -->visible", maintainer, 21),
+      feedback("Posted after the label", maintainer, 22, { createdAt: AFTER, updatedAt: AFTER }),
+      feedback("Edited after the label", maintainer, 23, { updatedAt: AFTER }),
+    ]);
+    await planRequest(revise, t.deps);
+    expect(userMessage(t)).toContain("Kept\nvisible");
+    expect(userMessage(t)).not.toContain("quoted public text");
+    expect(userMessage(t)).not.toContain("hidden note");
+    expect(userMessage(t)).not.toContain("after the label");
+  });
+
+  it("keeps only the latest few feedback comments, each capped", async () => {
+    const t = sentBack([
+      planComment(1),
+      ...Array.from({ length: 7 }, (_, i) =>
+        feedback(`note ${i} ${"x".repeat(2500)}`, maintainer, 30 + i),
+      ),
+    ]);
+    await planRequest(revise, t.deps);
+    expect(userMessage(t)).not.toContain("note 1 ");
+    expect(userMessage(t)).toContain("note 2 ");
+    expect(userMessage(t)).toContain("Maintainer feedback (5 comments");
+    expect(userMessage(t)).not.toContain("x".repeat(2000));
+  });
+
+  it("authorises whoever last applied the label, from the issue's history", async () => {
+    const t = sentBack([planComment(1), feedback("Change it")]);
+    t.github.latestLabelEvent.mockResolvedValue({
+      actor: { login: "stranger", id: 9, type: "User" },
+      createdAt: LABELLED_AT,
+    });
+    expect(await planRequest(revise, t.deps)).toBe("skipped");
+    expect(t.events).toEqual(["-changes-requested"]);
+    expect(t.llm.calls).toHaveLength(0);
+    expect(t.log).toHaveBeenCalledWith("info", "planner.skipped", {
+      issue: 7,
+      reason: "sender_not_allowed",
+    });
+  });
+
+  it.each([
+    ["is a bot", { login: "lead", id: 7, type: "Bot" }],
+    ["was deleted", null],
+  ])("refuses a label applied by an account that %s", async (_name, actor) => {
+    const t = sentBack([planComment(1), feedback("Change it")]);
+    t.github.latestLabelEvent.mockResolvedValue({ actor, createdAt: LABELLED_AT });
+    expect(await planRequest(revise, t.deps)).toBe("skipped");
+  });
+
+  it("refuses everyone when there is no allowlist", async () => {
+    const t = sentBack([planComment(1), feedback("Change it")]);
+    expect(await planRequest({ ...revise, allowlist: undefined }, t.deps)).toBe("skipped");
+    expect(t.llm.calls).toHaveLength(0);
+  });
+
+  it("refuses a sender who no longer has triage access, looking their role up once", async () => {
+    const t = sentBack([planComment(1), feedback("Change it")]);
+    t.github.getRole.mockResolvedValue("read");
+    expect(await planRequest(revise, t.deps)).toBe("skipped");
+    expect(t.log).toHaveBeenCalledWith("info", "planner.skipped", {
+      issue: 7,
+      reason: "sender_without_access",
+    });
+    expect(t.github.getRole).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores feedback from allowlisted accounts that lost access", async () => {
+    const t = sentBack([
+      planComment(1),
+      feedback("From the lead"),
+      feedback("From a former lead", { login: "old", id: 9, type: "User" }, 23),
+      feedback("From a deleted account", null, 24),
+    ]);
+    t.github.getRole.mockImplementation(async (login: string) => (login === "old" ? "" : "admin"));
+    await planRequest({ ...revise, allowlist: parseAllowlist("lead old") }, t.deps);
+    expect(userMessage(t)).toContain("From the lead");
+    expect(userMessage(t)).not.toContain("former lead");
+    expect(userMessage(t)).not.toContain("deleted account");
+    // The sender also commented: one lookup per login.
+    expect(t.github.getRole.mock.calls.map(([login]) => login)).toEqual(["lead", "old"]);
+  });
+
+  it("skips when the label was removed, never applied, or there is no plan yet", async () => {
+    const removed = setup(portalIssue({ labels: ["portal-request", "plan-ready"] }));
+    expect(await planRequest(revise, removed.deps)).toBe("skipped");
+    const never = sentBack([planComment(1)]);
+    never.github.latestLabelEvent.mockResolvedValue(null);
+    expect(await planRequest(revise, never.deps)).toBe("skipped");
+    const none = sentBack([feedback("Change it")]);
+    expect(await planRequest(revise, none.deps)).toBe("skipped");
+    expect(none.log).toHaveBeenCalledWith("info", "planner.skipped", {
+      issue: 7,
+      reason: "nothing_to_revise",
+    });
+  });
+
+  it("skips a request that was already approved or handed over", async () => {
+    const t = setup(
+      portalIssue({ labels: ["portal-request", "changes-requested", "approved-by-human"] }),
+    );
+    expect(await planRequest(revise, t.deps)).toBe("skipped");
+    expect(t.events).toEqual([]);
+  });
+
+  it("asks for feedback, and lets the label be applied again, when there is none", async () => {
+    const t = sentBack([planComment(1)]);
+    expect(await planRequest(revise, t.deps)).toBe("waiting");
+    expect(t.posted[0]).toContain("add a comment saying what to change");
+    expect([...t.labels]).toEqual(["portal-request", "plan-ready"]);
+    expect(t.llm.calls).toHaveLength(0);
+  });
+
+  it("hands the request to a maintainer the second time a plan is sent back", async () => {
+    const t = sentBack([
+      planComment(1),
+      feedback("Change it"),
+      planComment(2, 30),
+      feedback("Still no", maintainer, 31),
+    ]);
+    expect(await planRequest(revise, t.deps)).toBe("handed_over");
+    expect(t.posted[0].startsWith(STOPPED_MARKER)).toBe(true);
+    expect(t.posted[0]).toContain("sent back again");
+    expect(t.labels.has("needs-human-triage")).toBe(true);
+    expect(t.labels.has("plan-ready")).toBe(false);
+    expect(t.llm.calls).toHaveLength(0);
+  });
+
+  it("counts a failed revision as a round", async () => {
+    const t = sentBack([
+      planComment(1),
+      feedback("Change it"),
+      stopped(25),
+      feedback("Again", maintainer, 26),
+    ]);
+    expect(await planRequest(revise, t.deps)).toBe("handed_over");
+    expect(t.llm.calls).toHaveLength(0);
+  });
+
+  it("returns failed when handing over or asking for feedback can't be completed", async () => {
+    const twice = sentBack([planComment(1), planComment(2, 30)]);
+    twice.github.addLabels.mockRejectedValueOnce(new GitHubApiError("issues.addLabels", 500));
+    expect(await planRequest(revise, twice.deps)).toBe("failed");
+    const ask = sentBack([planComment(1)]);
+    ask.github.createComment.mockRejectedValueOnce(new GitHubApiError("issues.createComment", 500));
+    expect(await planRequest(revise, ask.deps)).toBe("failed");
+  });
+
+  it("only counts plans posted by the workflow bot itself", async () => {
+    const forged = { ...planComment(2, 30), user: { login: AGENT_LOGIN, id: 1, type: "Bot" } };
+    const t = sentBack([planComment(1), forged, feedback("Change it", maintainer, 31)]);
+    expect(await planRequest(revise, t.deps)).toBe("planned");
+  });
+
+  it("sends an out-of-area revision to a maintainer", async () => {
+    const outOfArea = JSON.stringify({
+      ...JSON.parse(planReply),
+      files: [{ path: "package.json", action: "modify" }],
+    });
+    const t = sentBack([planComment(1), feedback("Add a chart library")], [outOfArea]);
+    expect(await planRequest(revise, t.deps)).toBe("planned");
+    expect([...t.labels]).toEqual(["portal-request", "needs-human-triage"]);
+  });
+
+  it("doesn't post a revision nobody saw once the request was approved meanwhile", async () => {
+    const t = sentBack([planComment(1), feedback("Change it")]);
+    const approved = { ...portalIssue(), labels: ["portal-request", "approved-by-human"] };
+    t.github.getIssue
+      .mockResolvedValueOnce(
+        portalIssue({ labels: ["portal-request", "plan-ready", "changes-requested"] }),
+      )
+      .mockResolvedValueOnce(approved);
+    expect(await planRequest(revise, t.deps)).toBe("skipped");
+    expect(t.posted).toEqual([]);
+    expect(t.log).toHaveBeenCalledWith("info", "planner.skipped", {
+      issue: 7,
+      reason: "superseded",
+    });
+  });
+
+  it("hands over with a fixed comment when revising fails, or the role lookup does", async () => {
+    const t = sentBack(
+      [planComment(1), feedback("Change it")],
+      [new LlmError("cap_exceeded", "x")],
+    );
+    expect(await planRequest(revise, t.deps)).toBe("failed");
+    expect(t.posted[0]).toContain("reached its token budget");
+    expect(t.labels.has("needs-human-triage")).toBe(true);
+    expect(t.labels.has("planning")).toBe(false);
+
+    const role = sentBack([planComment(1), feedback("Change it")]);
+    role.github.getRole.mockRejectedValue(
+      new GitHubApiError("repos.getCollaboratorPermission", 403),
+    );
+    expect(await planRequest(revise, role.deps)).toBe("failed");
+    expect(role.labels.has("needs-human-triage")).toBe(true);
+  });
+
+  it("reports acceptance only after the sender is authorised", async () => {
+    const accept = vi.fn();
+    const allowed = sentBack([planComment(1), feedback("Change it")]);
+    await planRequest(revise, { ...allowed.deps, accept });
+    expect(accept).toHaveBeenCalledTimes(1);
+
+    const refused = sentBack([planComment(1)]);
+    refused.github.getRole.mockResolvedValue("");
+    const notAccepted = vi.fn();
+    await planRequest(revise, { ...refused.deps, accept: notAccepted });
+    expect(notAccepted).not.toHaveBeenCalled();
   });
 });

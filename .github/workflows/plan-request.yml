@@ -2,7 +2,9 @@ name: Plan request
 
 # Runs the planning agent when the portal creates a request issue: it posts an
 # implementation plan and labels the issue plan-ready, or needs-human-triage
-# when a maintainer is needed.
+# when a maintainer is needed. When an allowlisted maintainer applies
+# changes-requested, it posts a revised plan (once; the next time, the request
+# goes to a maintainer).
 #
 # Off until the repository variable PORTAL_BOT_LOGIN is set (forks do nothing).
 # The model key lives in the "agents" environment, limited to the default
@@ -10,13 +12,18 @@ name: Plan request
 # the agent uses Node's standard library only.
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled]
 
 permissions: {}
 
-# One run per issue at a time, so a plan can't be posted twice.
+# One run per issue at a time, so a plan can't be posted twice. GitHub keeps
+# only one waiting run per group, so label events this workflow ignores get a
+# group of their own and can't push a waiting planning run out.
 concurrency:
-  group: plan-request-${{ github.event.issue.number }}
+  group: >-
+    plan-request-${{ github.event.issue.number }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'changes-requested'
+    && format('-ignored-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 defaults:
@@ -33,7 +40,9 @@ jobs:
       vars.PORTAL_BOT_LOGIN != '' &&
       github.event.issue.user.type == 'Bot' &&
       github.event.issue.user.login == vars.PORTAL_BOT_LOGIN &&
-      contains(github.event.issue.labels.*.name, 'portal-request')
+      contains(github.event.issue.labels.*.name, 'portal-request') &&
+      (github.event.action == 'opened' ||
+        (github.event.label.name == 'changes-requested' && github.event.sender.type == 'User'))
     runs-on: ubuntu-latest
     environment: agents
     timeout-minutes: 20
@@ -67,6 +76,7 @@ jobs:
           fi
 
       - name: Plan
+        id: plan
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -76,35 +86,48 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MAX_TOKENS_PER_REQUEST: ${{ vars.LLM_MAX_TOKENS_PER_REQUEST }}
           LLM_IMAGE_INPUT: ${{ vars.LLM_IMAGE_INPUT }}
+          # Revisions: the agent reads who applied the label from the issue's
+          # history and checks them against the allowlist and their access.
+          PLANNER_MODE: ${{ github.event.action == 'labeled' && 'revise' || 'plan' }}
+          APPROVER_ALLOWLIST: ${{ vars.APPROVER_ALLOWLIST }}
         run: node agents/planner/run.mts
 
       # Any failure, cancellation or timeout before the request got a status
-      # would leave it "planning" (or blank) forever. Plain gh, so it works even
-      # if Node setup failed; it never contradicts a plan that was posted.
+      # would leave it stuck. Plain gh, so it works even if Node setup failed; it
+      # never contradicts a plan that was posted. Revisions are only handed over
+      # once the agent has accepted who asked for them.
       - name: Hand over to a maintainer
-        if: failure() || cancelled()
+        if: >-
+          (failure() || cancelled()) &&
+          (github.event.action == 'opened' || steps.plan.outputs.accepted == 'true')
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          # A revision is posted once the issue has its second plan.
+          EXPECTED_PLANS: ${{ github.event.action == 'labeled' && '2' || '1' }}
         run: |
           repo="$GITHUB_REPOSITORY"
           labels=$(gh issue view "$ISSUE_NUMBER" --repo "$repo" --json labels \
             --jq '[.labels[].name] | join(",")') || labels=""
           case ",$labels," in
-            *,needs-human-triage,* | *,plan-ready,* | *,approved-by-human,*)
-              echo "The request already has a status; nothing to do."
+            *,needs-human-triage,* | *,approved-by-human,*)
+              echo "The request already has a final status; nothing to do."
               exit 0
               ;;
           esac
-          # Same marker and author as agents/planner/plan.mts and planner.mts.
+          if [[ ",$labels," == *,plan-ready,* && ",$labels," != *,changes-requested,* ]]; then
+            echo "The request has a plan waiting for approval; nothing to do."
+            exit 0
+          fi
+          # Same marker and author (login and id) as agents/planner/planner.mts.
           plans=$(gh api --paginate "repos/$repo/issues/$ISSUE_NUMBER/comments" \
-            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- feature-bridge-agent:plan revision=")))] | length' \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and .user.id == 41898282 and (.body | startswith("<!-- feature-bridge-agent:plan revision=")))] | length' \
             | awk '{ total += $1 } END { print total + 0 }') || plans=0
-          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label planning || true
           rc=0
           gh issue edit "$ISSUE_NUMBER" --repo "$repo" --add-label needs-human-triage || rc=$?
-          if [[ "$plans" == "0" ]]; then
+          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label planning || true
+          if (( plans < EXPECTED_PLANS )); then
             gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$(printf '%s\n### Planning stopped\n\nThe planning run failed, was cancelled or timed out. A maintainer will take it from here.' '<!-- feature-bridge-agent:planning-stopped -->')" || rc=$?
           fi
           exit "$rc"

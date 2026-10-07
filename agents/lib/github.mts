@@ -38,6 +38,13 @@ export interface Comment {
   body: string;
   user: Account | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+/** The latest time a label was added, and by whom. */
+export interface LabelEvent {
+  actor: Account | null;
+  createdAt: string;
 }
 
 export interface GitHubClient {
@@ -47,6 +54,10 @@ export interface GitHubClient {
   addLabels(number: number, labels: string[]): Promise<void>;
   /** Removing a label that isn't there is not an error. */
   removeLabel(number: number, label: string): Promise<void>;
+  /** The account's role on the repository (`admin`, `maintain`, `write`, `triage`, `read`), or "" if none. */
+  getRole(login: string): Promise<string>;
+  /** The most recent time `label` was added to the issue, or null if never. */
+  latestLabelEvent(number: number, label: string): Promise<LabelEvent | null>;
 }
 
 type Raw = Record<string, unknown>;
@@ -68,6 +79,7 @@ const labelNames = (value: unknown) =>
     : [];
 
 const REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 
 export function createGitHubClient(
   repo: string,
@@ -148,6 +160,7 @@ export function createGitHubClient(
             body: text(item.body),
             user: account(item.user),
             createdAt: text(item.created_at),
+            updatedAt: text(item.updated_at),
           });
         }
         if (batch.length < 100) return comments;
@@ -171,6 +184,40 @@ export function createGitHubClient(
           body: { labels },
         }),
       );
+    },
+
+    async latestLabelEvent(number, label) {
+      let latest: LabelEvent | null = null;
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const batch = (await (
+          await call("issues.listEvents", `/issues/${number}/events?per_page=100&page=${page}`)
+        ).json()) as unknown;
+        if (!Array.isArray(batch)) throw new Error("GitHub returned a non-list");
+        for (const item of batch as Raw[]) {
+          const name = (item.label as Raw | null | undefined)?.name;
+          if (item.event === "labeled" && name === label) {
+            latest = { actor: account(item.actor), createdAt: text(item.created_at) };
+          }
+        }
+        if (batch.length < 100) return latest;
+      }
+      throw new Error("too many events to read safely");
+    },
+
+    async getRole(login) {
+      if (!LOGIN.test(login)) return "";
+      const response = await call(
+        "repos.getCollaboratorPermission",
+        `/collaborators/${login}/permission`,
+        {},
+        [404],
+      );
+      if (response.status === 404) {
+        await done(response);
+        return "";
+      }
+      const raw = (await response.json()) as Raw;
+      return text(raw.role_name);
     },
 
     async removeLabel(number, label) {

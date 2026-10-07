@@ -57,7 +57,13 @@ describe("createGitHubClient", () => {
     );
     const comments = await github.listComments(7);
     expect(comments).toHaveLength(101);
-    expect(comments.at(-1)).toEqual({ id: 500, body: "last", user: null, createdAt: "" });
+    expect(comments.at(-1)).toEqual({
+      id: 500,
+      body: "last",
+      user: null,
+      createdAt: "",
+      updatedAt: "",
+    });
     expect(String(fetch.mock.calls[1][0])).toContain("page=2");
   });
 
@@ -129,5 +135,50 @@ describe("createGitHubClient", () => {
     expect((error as GitHubApiError).status).toBe(0);
     expect(String((error as Error).message)).not.toContain(TOKEN);
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads an account's role, treating non-collaborators and odd names as none", async () => {
+    const { fetch, github } = client(
+      Response.json({ permission: "write", role_name: "triage" }),
+      new Response("", { status: 404 }),
+    );
+    expect(await github.getRole("Lead")).toBe("triage");
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      "https://api.github.com/repos/octo/requests/collaborators/Lead/permission",
+    );
+    expect(await github.getRole("stranger")).toBe("");
+    expect(await github.getRole("../admin")).toBe("");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails on a role lookup the token isn't allowed to make", async () => {
+    const { github } = client(new Response("", { status: 403 }));
+    await expect(github.getRole("lead")).rejects.toBeInstanceOf(GitHubApiError);
+  });
+
+  it("finds the latest time a label was added, across pages", async () => {
+    const event = (event: string, name: string, login: string, at: string) => ({
+      event,
+      label: { name },
+      actor: { login, id: 1, type: "User" },
+      created_at: at,
+    });
+    const page1 = [
+      event("labeled", "changes-requested", "first", "2026-10-01T00:00:00Z"),
+      ...Array.from({ length: 99 }, () => event("labeled", "other", "x", "2026-10-02T00:00:00Z")),
+    ];
+    const page2 = [
+      event("unlabeled", "changes-requested", "first", "2026-10-03T00:00:00Z"),
+      event("labeled", "changes-requested", "second", "2026-10-04T00:00:00Z"),
+      { event: "labeled", label: null, actor: null },
+    ];
+    const { fetch, github } = client(Response.json(page1), Response.json(page2));
+    expect(await github.latestLabelEvent(7, "changes-requested")).toEqual({
+      actor: { login: "second", id: 1, type: "User" },
+      createdAt: "2026-10-04T00:00:00Z",
+    });
+    expect(String(fetch.mock.calls[0][0])).toContain("/issues/7/events?per_page=100&page=1");
+    const { github: empty } = client(Response.json([]));
+    expect(await empty.latestLabelEvent(7, "changes-requested")).toBeNull();
   });
 });
