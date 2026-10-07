@@ -31,3 +31,13 @@ error messages name the setting, never its value.
 The adapter sends `max_tokens`, so endpoints that only accept `max_completion_tokens`
 aren't supported. Run the agents on GitHub-hosted runners: the key is sent to whatever
 `LLM_BASE_URL` points at.
+
+## Approver allowlist
+
+`APPROVER_ALLOWLIST` (Actions variable) lists the GitHub usernames whose approvals,
+plan feedback and reviews the agents act on: comma or whitespace separated, `@`
+optional, case-insensitive. Only accounts of type `User` match; bots, organizations,
+`ghost` and anything that isn't a valid GitHub username never do. A missing or empty
+list allows nobody, so a fork does nothing until its owner sets it. The workflows also
+check that the account still has triage access to the repository, because usernames can
+be freed and registered again.
