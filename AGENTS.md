@@ -35,7 +35,7 @@ Each approved request gets exactly one folder, `src/app/demos/<slug>/`.
 | `<name>.tsx`, `<name>.ts`           | Components and logic for this demo (kebab-case) |
 | `<name>.test.tsx`, `<name>.test.ts` | Tests, beside the code they test                |
 
-Nothing else: no `.css`, `.md`, `.json`, `.d.ts`, images or other assets, and no Next.js special file names other than `page.tsx` (for example `layout`, `route`, `loading`, `error`, `not-found`, `template`, `default`, `icon`, `opengraph-image`, `sitemap`, `robots`, `manifest`).
+Nothing else: no `.css`, `.md`, `.json`, `.d.ts`, images or other assets, and no Next.js special file names other than `page.tsx` (for example `layout`, `route`, `loading`, `error`, `not-found`, `template`, `default`, `icon`, `opengraph-image`, `sitemap`, `robots`, `manifest`, including numbered variants such as `icon1`).
 
 ### Page rules (Next.js 16)
 

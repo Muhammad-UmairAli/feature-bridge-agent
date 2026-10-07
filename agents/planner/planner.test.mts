@@ -254,6 +254,37 @@ describe("planRequest", () => {
     );
   });
 
+  it("posts an out-of-area plan with a note and hands it to a maintainer", async () => {
+    const outOfArea = JSON.stringify({
+      ...JSON.parse(planReply),
+      files: [
+        { path: "src/app/demos/request-7/page.tsx", action: "create" },
+        { path: "package.json", action: "modify" },
+      ],
+      needs: { newDependency: true },
+    });
+    const t = setup(portalIssue(), [outOfArea]);
+    expect(await planRequest(settings, t.deps)).toBe("planned");
+    expect(t.posted[0]).toContain(
+      "> **Note:** This plan needs a maintainer before it can go ahead: 1 planned file is outside `src/app/demos/request-7/` or not allowed there (see Files); it needs a new dependency.",
+    );
+    expect([...t.labels]).toEqual(["portal-request", "needs-human-triage"]);
+    expect(t.log).toHaveBeenCalledWith(
+      "info",
+      "planner.planned",
+      expect.objectContaining({ triage: true, rejectedPaths: 1, needs: "newDependency" }),
+    );
+  });
+
+  it("hands a plan to a maintainer when the request tried to instruct the agent", async () => {
+    const flagged = JSON.stringify({ ...JSON.parse(planReply), instructionsInRequest: true });
+    const t = setup(portalIssue(), [flagged]);
+    expect(await planRequest(settings, t.deps)).toBe("planned");
+    expect(t.posted[0]).toContain("instructions aimed at the agent");
+    expect(t.labels.has("needs-human-triage")).toBe(true);
+    expect(t.labels.has("plan-ready")).toBe(false);
+  });
+
   it("records a fingerprint of the request text in the plan marker", async () => {
     const t = setup(portalIssue());
     await planRequest(settings, t.deps);

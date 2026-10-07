@@ -60,5 +60,14 @@ can't mention users, link issues or add formatting. Labels move from `planning` 
 a short fixed comment and applies `needs-human-triage` instead. Runs for the same issue must
 not overlap; the workflow serialises them per issue.
 
+Plans that can't stay inside the demo folder go to a maintainer instead. The agent checks
+every listed file against the allowed demo files, scans the plan text for other paths,
+URLs, dependency installs, configuration, environment variables and network calls, and
+asks the model whether the request needs a dependency, an integration, auth changes or
+stored data. If anything is flagged, or the request text tried to instruct the agent, the
+plan is still posted with a note explaining why, and the issue gets `needs-human-triage`
+instead of `plan-ready`. This is a triage signal; the build and CI check what actually
+changes.
+
 Screenshots are sent to the model only when `LLM_IMAGE_INPUT` is `on` (the model must
 accept images) and the stored file still exists.

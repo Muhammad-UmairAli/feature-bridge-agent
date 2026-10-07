@@ -21,6 +21,7 @@ import {
   parseRequestBody,
   requestHash,
 } from "./request.mts";
+import { type ScopeCheck, checkScope } from "./scope.mts";
 
 /** Comments made with the workflow's GITHUB_TOKEN are authored by this bot. */
 export const AGENT_LOGIN = "github-actions[bot]";
@@ -130,6 +131,7 @@ export async function planRequest(
 
   let llm: LlmClient | null = null;
   let plan: Plan;
+  let scope: ScopeCheck;
   let image = false;
   try {
     if (agentPlanComments(await github.listComments(number)).length > 0) {
@@ -170,6 +172,12 @@ export async function planRequest(
       llm,
       buildPlanMessages({ description: request.description, slug, ...context, screenshotUrl }),
     );
+    scope = checkScope(plan, slug);
+    if (scope.reasons.length > 0) {
+      notes.unshift(
+        `This plan needs a maintainer before it can go ahead: ${scope.reasons.join("; ")}.`,
+      );
+    }
     await github.createComment(
       number,
       renderPlanComment({
@@ -178,6 +186,7 @@ export async function planRequest(
         slug,
         requestHash: requestHash(request.description),
         notes,
+        triage: scope.reasons.length > 0,
       }),
     );
   } catch (error) {
@@ -205,9 +214,11 @@ export async function planRequest(
 
   // The plan is public now: a label problem must not contradict it, so it only
   // fails the run (which notifies the maintainer).
+  // Out-of-area plans go to a maintainer instead of waiting for approval.
+  const triage = scope.reasons.length > 0;
   const labelled = await bestEffort(log, number, [
     () => github.removeLabel(number, LABELS.planning),
-    () => github.addLabels(number, [LABELS.planReady]),
+    () => github.addLabels(number, [triage ? LABELS.needsHumanTriage : LABELS.planReady]),
   ]);
   log(labelled ? "info" : "error", "planner.planned", {
     issue: number,
@@ -215,6 +226,9 @@ export async function planRequest(
     tokens: llm.tokensUsed,
     image,
     flaggedInstructions: plan.instructionsInRequest,
+    rejectedPaths: scope.rejectedPaths,
+    needs: scope.needs.join(","),
+    triage,
     labelled,
   });
   return labelled ? "planned" : "failed";
