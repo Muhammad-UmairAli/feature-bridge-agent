@@ -60,12 +60,13 @@ describe("readGitHubAppConfig", () => {
       owner: "octo-org",
       repo: "demo.repo",
     });
-    expect(config.privateKey).toBe(PEM);
+    expect(config.privateKey.type).toBe("private");
+    expect(JSON.stringify(config)).not.toContain("PRIVATE KEY");
   });
 
   it("accepts a key with real newlines", () => {
-    expect(readGitHubAppConfig({ ...githubEnv, GH_APP_PRIVATE_KEY: PEM }).privateKey).toBe(
-      PEM.trim(),
+    expect(readGitHubAppConfig({ ...githubEnv, GH_APP_PRIVATE_KEY: PEM }).privateKey.type).toBe(
+      "private",
     );
   });
 

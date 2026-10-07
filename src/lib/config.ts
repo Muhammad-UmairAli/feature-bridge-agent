@@ -3,7 +3,7 @@
  * validated. Missing or malformed values fail closed with a generic 503 for the
  * client; the variable name (never its value) is logged for operators.
  */
-import { createPrivateKey } from "node:crypto";
+import { type KeyObject, createPrivateKey } from "node:crypto";
 
 import { HttpError } from "@/lib/api/envelope";
 import { log } from "@/lib/log";
@@ -32,8 +32,8 @@ function positiveInt(env: Env, name: string): number {
 export interface GitHubAppConfig {
   appId: number;
   installationId: number;
-  /** PEM text. Accepts real newlines or literal "\n" escapes (common in .env files). */
-  privateKey: string;
+  /** Parsed private key. Never the PEM text, so a logged config can't leak it. */
+  privateKey: KeyObject;
   owner: string;
   repo: string;
 }
@@ -43,11 +43,13 @@ export function readGitHubAppConfig(env: Env = process.env): GitHubAppConfig {
   const match = /^([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100})$/.exec(target);
   if (!match || match[2] === "." || match[2] === "..") throw notConfigured("REQUEST_TARGET_REPO");
 
-  const privateKey = required(env, "GH_APP_PRIVATE_KEY").replace(/\\n/g, "\n");
+  // Accepts real newlines or literal "\n" escapes (common in .env files).
+  const pem = required(env, "GH_APP_PRIVATE_KEY").replace(/\\n/g, "\n");
+  let privateKey: KeyObject;
   try {
-    // Parses and rejects malformed or passphrase-protected keys up front, so
-    // signing can't fail later with an unexpected 500.
-    createPrivateKey(privateKey);
+    // Rejects malformed or passphrase-protected keys up front, so signing
+    // can't fail later with an unexpected 500.
+    privateKey = createPrivateKey(pem);
   } catch {
     throw notConfigured("GH_APP_PRIVATE_KEY");
   }
