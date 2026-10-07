@@ -87,8 +87,11 @@ jobs:
 
           # Each value is captured on its own line so a failing git command
           # stops the job (bash -e) instead of checking empty text.
+          # Current tree plus every path the PR's commits touched (catches
+          # files added and deleted again within the PR).
           paths=$(git ls-files)
-          check "file paths" "$paths"
+          touched=$(git log --format= --name-only "$base..$head")
+          check "file paths" "$(printf '%s\n%s' "$paths" "$touched")"
 
           rc=0
           files=$(git grep -l -I -i -E -f "$patterns" 2> /dev/null) || rc=$?
