@@ -28,7 +28,7 @@ git clone https://github.com/Muhammad-UmairAli/feature-bridge-agent.git
 cd feature-bridge-agent
 corepack enable pnpm
 pnpm install
-cp .env.example .env.local   # optional until the request form lands
+cp .env.example .env.local   # Cloudflare test keys for the bot check are noted inside
 pnpm dev                     # http://localhost:3000
 ```
 
@@ -55,8 +55,9 @@ Set sensitive Vercel values for the **Production** environment only, never Previ
 | `GH_APP_INSTALLATION_ID`         | Variable   | Vercel (Production)                                                             | _Planned._ That app's installation on the target repository                                                                                                  |
 | `GH_APP_PRIVATE_KEY`             | Secret     | Vercel (Production)                                                             | _Planned._ The app's private key (PEM; paste as-is in Vercel)                                                                                                |
 | `REQUEST_TARGET_REPO`            | Variable   | Vercel (Production)                                                             | _Planned._ Repository that receives requests (`owner/name`)                                                                                                  |
-| `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key | Vercel                                                                          | _Planned._ Bot check widget; built into the page, so public by design                                                                                        |
-| `BOT_CHECK_SECRET_KEY`           | Secret     | Vercel (Production)                                                             | _Planned._ Server-side bot check verification                                                                                                                |
+| `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key | Vercel                                                                          | Cloudflare Turnstile widget; built into the page, so public by design                                                                                        |
+| `BOT_CHECK_SECRET_KEY`           | Secret     | Vercel (Production)                                                             | Server-side Turnstile verification                                                                                                                           |
+| `BOT_CHECK_HOSTNAMES`            | Variable   | Vercel (Production)                                                             | Comma-separated hostnames the widget may be served from. Required in production; elsewhere it defaults to the deployment or request host                     |
 | `BLOB_READ_WRITE_TOKEN`          | Secret     | Vercel (Production; created when a Blob store is connected) and Actions secrets | _Planned._ Screenshot storage and the 90-day cleanup job; update both copies when rotated                                                                    |
 | `DAILY_SUBMISSION_CAP`           | Variable   | Vercel (Production)                                                             | _Planned._ Max accepted submissions per UTC day (default 20)                                                                                                 |
 | `LLM_API_KEY`                    | Secret     | Actions secrets                                                                 | _Planned._ Key for the model provider the agents use                                                                                                         |

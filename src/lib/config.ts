@@ -68,8 +68,63 @@ export function readDailySubmissionCap(env: Env = process.env): number {
   return Number(raw);
 }
 
+/**
+ * True for the live deployment: Vercel's production environment, or a
+ * production Node process outside Vercel (self-hosting).
+ */
+export function isProductionDeployment(env: Env = process.env): boolean {
+  return env.VERCEL_ENV ? env.VERCEL_ENV === "production" : env.NODE_ENV === "production";
+}
+
+/** Cloudflare's documented always-pass/always-fail test secrets. */
+export function isTestBotCheckSecret(secret: string): boolean {
+  return /^[123]x0{31}AA$/.test(secret);
+}
+
 export function readBotCheckSecret(env: Env = process.env): string {
-  return required(env, "BOT_CHECK_SECRET_KEY");
+  const secret = required(env, "BOT_CHECK_SECRET_KEY");
+  // A test secret in production would let every request through.
+  if (isProductionDeployment(env) && isTestBotCheckSecret(secret))
+    throw notConfigured("BOT_CHECK_SECRET_KEY");
+  return secret;
+}
+
+/**
+ * Lower-case, punycode, no trailing dot; null when not a plain hostname
+ * (ports, IPv6 literals, paths and other junk are rejected).
+ */
+export function normaliseHostname(name: string): string | null {
+  const trimmed = name.trim().replace(/\.$/, "");
+  if (!trimmed || /[:/\[\]@\s]/.test(trimmed)) return null;
+  try {
+    const hostname = new URL(`http://${trimmed}`).hostname;
+    return /^[a-z0-9.-]{1,253}$/.test(hostname) ? hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hostnames the bot-check widget may be served from.
+ * - BOT_CHECK_HOSTNAMES (comma-separated) when set; any invalid entry is a config error.
+ * - Required in production, so the check can't degrade to "whatever Host the client sent".
+ * - Otherwise Vercel's deployment URL (previews), else the request host (local development).
+ *   An unusable request host yields an empty list, which rejects every token.
+ */
+export function readBotCheckHostnames(
+  env: Env = process.env,
+  requestHost: string | null = null,
+): string[] {
+  const configured = env.BOT_CHECK_HOSTNAMES?.trim();
+  if (configured) {
+    const names = configured.split(",").map(normaliseHostname);
+    if (names.some((name) => name === null)) throw notConfigured("BOT_CHECK_HOSTNAMES");
+    return names as string[];
+  }
+  if (isProductionDeployment(env)) throw notConfigured("BOT_CHECK_HOSTNAMES");
+  const fallback = env.VERCEL_URL ?? requestHost?.replace(/:\d+$/, "") ?? "";
+  const name = normaliseHostname(fallback);
+  return name ? [name] : [];
 }
 
 export function readBlobToken(env: Env = process.env): string {

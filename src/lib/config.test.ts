@@ -7,7 +7,10 @@ import { HttpError } from "@/lib/api/envelope";
 
 import {
   DEFAULT_DAILY_SUBMISSION_CAP,
+  isProductionDeployment,
+  isTestBotCheckSecret,
   readBlobToken,
+  readBotCheckHostnames,
   readBotCheckSecret,
   readDailySubmissionCap,
   readGitHubAppConfig,
@@ -116,5 +119,76 @@ describe("secrets", () => {
       () => readBlobToken({ BLOB_READ_WRITE_TOKEN: "  " }),
       "BLOB_READ_WRITE_TOKEN",
     );
+  });
+});
+
+describe("readBotCheckHostnames", () => {
+  it("normalises the configured list", () => {
+    expect(
+      readBotCheckHostnames(
+        { BOT_CHECK_HOSTNAMES: "Portal.Example., localhost, bücher.example" },
+        "x",
+      ),
+    ).toEqual(["portal.example", "localhost", "xn--bcher-kva.example"]);
+  });
+
+  it("rejects any invalid configured entry instead of dropping it", () => {
+    for (const value of ["portal.example, localhost:3000", "[::1]", "a b"]) {
+      expectNotConfigured(
+        () => readBotCheckHostnames({ BOT_CHECK_HOSTNAMES: value }),
+        "BOT_CHECK_HOSTNAMES",
+      );
+    }
+  });
+
+  it("is required in production so the check can't trust the Host header", () => {
+    expectNotConfigured(
+      () => readBotCheckHostnames({ VERCEL_ENV: "production" }, "attacker.example"),
+      "BOT_CHECK_HOSTNAMES",
+    );
+    expectNotConfigured(
+      () => readBotCheckHostnames({ NODE_ENV: "production" }, "x.example"),
+      "BOT_CHECK_HOSTNAMES",
+    );
+  });
+
+  it("falls back to the Vercel deployment URL, then the request host, outside production", () => {
+    expect(
+      readBotCheckHostnames({ VERCEL_ENV: "preview", VERCEL_URL: "app-abc.vercel.app" }, "other"),
+    ).toEqual(["app-abc.vercel.app"]);
+    expect(readBotCheckHostnames({}, "localhost:3000")).toEqual(["localhost"]);
+  });
+
+  it("returns no hostnames for an unusable request host (every token is then rejected)", () => {
+    expect(readBotCheckHostnames({}, null)).toEqual([]);
+    expect(readBotCheckHostnames({}, "[::1]:3000")).toEqual([]);
+  });
+});
+
+describe("bot check secret", () => {
+  const TEST_SECRET = "1x0000000000000000000000000000000AA";
+
+  it("recognises Cloudflare's test secrets", () => {
+    expect(isTestBotCheckSecret(TEST_SECRET)).toBe(true);
+    expect(isTestBotCheckSecret("2x0000000000000000000000000000000AA")).toBe(true);
+    expect(isTestBotCheckSecret("0x4AAAAAAA-real-secret")).toBe(false);
+  });
+
+  it("refuses a test secret in production but allows it elsewhere", () => {
+    expectNotConfigured(
+      () => readBotCheckSecret({ BOT_CHECK_SECRET_KEY: TEST_SECRET, VERCEL_ENV: "production" }),
+      "BOT_CHECK_SECRET_KEY",
+      TEST_SECRET,
+    );
+    expect(readBotCheckSecret({ BOT_CHECK_SECRET_KEY: TEST_SECRET, VERCEL_ENV: "preview" })).toBe(
+      TEST_SECRET,
+    );
+  });
+
+  it("detects production on and off Vercel", () => {
+    expect(isProductionDeployment({ VERCEL_ENV: "production" })).toBe(true);
+    expect(isProductionDeployment({ VERCEL_ENV: "preview", NODE_ENV: "production" })).toBe(false);
+    expect(isProductionDeployment({ NODE_ENV: "production" })).toBe(true);
+    expect(isProductionDeployment({ NODE_ENV: "development" })).toBe(false);
   });
 });

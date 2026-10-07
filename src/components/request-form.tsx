@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
+import { BotCheck, type BotCheckHandle } from "@/components/bot-check";
 import { Button } from "@/components/ui/button";
 import {
   ACCEPTED_SCREENSHOT_TYPES,
@@ -26,6 +27,8 @@ type Status =
 const fieldClass =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-foreground aria-[invalid=true]:border-destructive";
 const linkButtonClass = "text-primary underline underline-offset-4";
+const COMPLETE_CHECK = "Complete the verification check first.";
+const GENERIC_FAILURE = "We couldn't submit your request. Please try again in a moment.";
 
 /**
  * A short, debounced message for screen readers about the description length,
@@ -41,21 +44,26 @@ function lengthAnnouncement(count: number): string {
 }
 
 export function RequestForm({
+  botCheckSiteKey,
   submit = postRequest,
 }: {
-  submit?: (form: FormData) => Promise<SubmitOutcome>;
+  botCheckSiteKey: string | undefined;
+  submit?: (form: FormData, botCheckToken: string) => Promise<SubmitOutcome>;
 }) {
   const baseId = useId();
   const ids = {
     notice: `${baseId}-notice`,
     description: `${baseId}-description`,
     screenshot: `${baseId}-screenshot`,
+    botCheckError: `${baseId}-botcheck-error`,
     done: `${baseId}-done`,
   };
   const [description, setDescription] = useState("");
   const [screenshot, setScreenshot] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>({ state: "editing", message: null, fields: {} });
   const [announcement, setAnnouncement] = useState("");
+  const [botCheckToken, setBotCheckToken] = useState<string | null>(null);
+  const botCheckRef = useRef<BotCheckHandle>(null);
   const inFlight = useRef(false);
   const focusDescriptionNext = useRef(false);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -93,16 +101,31 @@ export function RequestForm({
     }
   }, [status]);
 
+  /** New token from the widget; it also clears an earlier "complete the check" error. */
+  function onBotCheckToken(token: string | null) {
+    setBotCheckToken(token);
+    if (!token) return;
+    setStatus((current) => {
+      if (current.state !== "editing" || !current.fields.botCheckToken) return current;
+      const remaining = { ...current.fields };
+      delete remaining.botCheckToken;
+      const message = Object.keys(remaining).length > 0 ? current.message : null;
+      return { state: "editing", message, fields: remaining };
+    });
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (inFlight.current) return; // ignore double submits
     const formElement = event.currentTarget;
 
     const clientErrors = checkBeforeSubmit(description, screenshot);
-    if (Object.keys(clientErrors).length > 0) {
+    const fieldProblems = Object.keys(clientErrors).length > 0;
+    if (!botCheckToken) clientErrors.botCheckToken = COMPLETE_CHECK;
+    if (fieldProblems || !botCheckToken) {
       setStatus({
         state: "editing",
-        message: "Please fix the highlighted fields.",
+        message: fieldProblems ? "Please fix the highlighted fields." : COMPLETE_CHECK,
         fields: clientErrors,
       });
       return;
@@ -112,36 +135,44 @@ export function RequestForm({
     setStatus({ state: "submitting" });
     let outcome: SubmitOutcome;
     try {
-      outcome = await submit(new FormData(formElement));
+      outcome = await submit(new FormData(formElement), botCheckToken);
     } catch {
-      outcome = {
-        kind: "failed",
-        message: "We couldn't submit your request. Please try again in a moment.",
-      };
+      outcome = { kind: "failed", message: GENERIC_FAILURE };
     } finally {
       inFlight.current = false;
     }
 
     if (outcome.kind === "created") {
       setStatus({ state: "done", id: outcome.id, trackingUrl: outcome.trackingUrl });
-    } else {
-      setStatus({
-        state: "editing",
-        message: outcome.message,
-        fields: outcome.kind === "invalid" ? outcome.fields : {},
-      });
+      return;
     }
+    // Tokens are single-use: get a fresh one before the next attempt.
+    botCheckRef.current?.reset();
+    setStatus({
+      state: "editing",
+      message: outcome.message,
+      fields: outcome.kind === "invalid" ? outcome.fields : {},
+    });
   }
 
   function removeScreenshot() {
-    if (screenshotRef.current) screenshotRef.current.value = "";
     setScreenshot(null);
-    screenshotRef.current?.focus();
+    const input = screenshotRef.current;
+    if (input) {
+      // Clear the native file input too, so the file isn't submitted with the form.
+      try {
+        input.value = "";
+      } catch {
+        // Some environments refuse to reset file inputs; the state above still clears.
+      }
+      input.focus();
+    }
   }
 
   function startAnother() {
     setDescription("");
     setScreenshot(null);
+    setBotCheckToken(null);
     focusDescriptionNext.current = true;
     setStatus({ state: "editing", message: null, fields: {} });
   }
@@ -274,10 +305,14 @@ export function RequestForm({
         )}
       </div>
 
-      {/* The bot check widget arrives in a follow-up change; it fills this field. */}
-      <input type="hidden" name="botCheckToken" value="" />
+      <BotCheck
+        ref={botCheckRef}
+        siteKey={botCheckSiteKey}
+        onToken={onBotCheckToken}
+        describedBy={fields.botCheckToken ? ids.botCheckError : undefined}
+      />
       {fields.botCheckToken && (
-        <p id={`${baseId}-botcheck-error`} className="text-sm text-destructive">
+        <p id={ids.botCheckError} className="text-sm text-destructive">
           {fields.botCheckToken}
         </p>
       )}
@@ -285,9 +320,9 @@ export function RequestForm({
       <div className="flex items-center gap-3">
         <Button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !botCheckSiteKey}
           focusableWhenDisabled
-          aria-describedby={fields.botCheckToken ? `${baseId}-botcheck-error` : undefined}
+          aria-describedby={fields.botCheckToken ? ids.botCheckError : undefined}
         >
           {submitting ? "Submitting…" : "Submit request"}
         </Button>

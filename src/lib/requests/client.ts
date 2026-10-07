@@ -3,6 +3,8 @@
  * (for fast feedback; the server stays authoritative) and a typed wrapper
  * around POST /api/v1/requests.
  */
+import { BOT_CHECK_HEADER } from "@/lib/bot-check/turnstile-shared";
+
 import {
   DESCRIPTION_MAX_LENGTH,
   DESCRIPTION_MIN_LENGTH,
@@ -44,11 +46,16 @@ const FIELD_NAMES = ["description", "screenshot", "botCheckToken"] as const;
 /** POST the form and translate the response envelope into an outcome. Never throws. */
 export async function postRequest(
   form: FormData,
+  botCheckToken: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<SubmitOutcome> {
   let response: Response;
   try {
-    response = await fetchImpl("/api/v1/requests", { method: "POST", body: form });
+    response = await fetchImpl("/api/v1/requests", {
+      method: "POST",
+      body: form,
+      headers: { [BOT_CHECK_HEADER]: botCheckToken },
+    });
   } catch {
     return { kind: "failed", message: "Network error. Check your connection and try again." };
   }

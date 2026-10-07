@@ -36,17 +36,18 @@ describe("checkBeforeSubmit", () => {
 describe("postRequest", () => {
   it("returns the created request", async () => {
     const fetchImpl = vi.fn(json(201, { data: { id: 9, trackingUrl: "/requests/9" } }));
-    const outcome = await postRequest(new FormData(), fetchImpl as unknown as typeof fetch);
+    const outcome = await postRequest(new FormData(), "tok", fetchImpl as unknown as typeof fetch);
     expect(outcome).toEqual({ kind: "created", id: 9, trackingUrl: "/requests/9" });
     expect(fetchImpl).toHaveBeenCalledWith(
       "/api/v1/requests",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST", headers: { "x-bot-check-token": "tok" } }),
     );
   });
 
   it("returns field errors for 422", async () => {
     const outcome = await postRequest(
       new FormData(),
+      "tok",
       json(422, {
         error: {
           code: "VALIDATION_FAILED",
@@ -65,6 +66,7 @@ describe("postRequest", () => {
   it("passes server messages through for other errors", async () => {
     const outcome = await postRequest(
       new FormData(),
+      "tok",
       json(429, {
         error: { code: "DAILY_LIMIT_REACHED", message: "Try tomorrow", details: null },
       }) as unknown as typeof fetch,
@@ -76,17 +78,18 @@ describe("postRequest", () => {
     const offline = vi.fn(async () => {
       throw new TypeError("Failed to fetch");
     });
-    expect((await postRequest(new FormData(), offline as unknown as typeof fetch)).kind).toBe(
-      "failed",
-    );
+    expect(
+      (await postRequest(new FormData(), "tok", offline as unknown as typeof fetch)).kind,
+    ).toBe("failed");
     const html = async () => new Response("<html>bad gateway</html>", { status: 502 });
-    const outcome = await postRequest(new FormData(), html as unknown as typeof fetch);
+    const outcome = await postRequest(new FormData(), "tok", html as unknown as typeof fetch);
     expect(outcome).toEqual({ kind: "failed", message: expect.stringMatching(/couldn't submit/) });
   });
 
   it("drops malformed error details instead of trusting them", async () => {
     const outcome = await postRequest(
       new FormData(),
+      "tok",
       json(422, {
         error: {
           code: "X",
@@ -106,6 +109,7 @@ describe("postRequest", () => {
     ]) {
       const outcome = await postRequest(
         new FormData(),
+        "tok",
         json(201, { data }) as unknown as typeof fetch,
       );
       expect(outcome.kind).toBe("failed");
@@ -115,6 +119,7 @@ describe("postRequest", () => {
   it("falls back to a generic message when the server sends an empty one", async () => {
     const outcome = await postRequest(
       new FormData(),
+      "tok",
       json(503, { error: { code: "X", message: "", details: null } }) as unknown as typeof fetch,
     );
     expect(outcome).toEqual({ kind: "failed", message: expect.stringMatching(/couldn't submit/) });

@@ -19,7 +19,6 @@ export interface ValidatedScreenshot {
 export interface ValidatedRequest {
   description: string;
   screenshot: ValidatedScreenshot | null;
-  botCheckToken: string;
 }
 
 export type ValidationResult =
@@ -69,7 +68,7 @@ export async function validateSubmission(form: FormData): Promise<ValidationResu
   const details: Record<string, string> = {};
 
   // Each field may appear at most once; duplicates are rejected, not guessed at.
-  for (const field of ["description", "botCheckToken", "screenshot"]) {
+  for (const field of ["description", "screenshot"]) {
     if (form.getAll(field).length > 1) details[field] = "Send this field only once.";
   }
 
@@ -83,12 +82,6 @@ export async function validateSubmission(form: FormData): Promise<ValidationResu
     } else if (length > DESCRIPTION_MAX_LENGTH) {
       details.description = `Keep the description under ${DESCRIPTION_MAX_LENGTH} characters.`;
     }
-  }
-
-  const rawToken = form.get("botCheckToken");
-  const botCheckToken = typeof rawToken === "string" ? rawToken.trim() : "";
-  if (!details.botCheckToken && (!botCheckToken || botCheckToken.length > 2048)) {
-    details.botCheckToken = "Complete the verification check and try again.";
   }
 
   let screenshot: ValidatedScreenshot | null = null;
@@ -110,5 +103,5 @@ export async function validateSubmission(form: FormData): Promise<ValidationResu
   }
 
   if (Object.keys(details).length > 0) return { ok: false, details };
-  return { ok: true, value: { description, screenshot, botCheckToken } };
+  return { ok: true, value: { description, screenshot } };
 }
