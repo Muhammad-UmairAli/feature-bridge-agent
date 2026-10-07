@@ -19,6 +19,14 @@ describe("checkBeforeSubmit", () => {
     expect(checkBeforeSubmit("a".repeat(5001), null).description).toMatch(/under 5000/);
   });
 
+  it("requires the publish acknowledgement when a screenshot is attached", () => {
+    const png = new File(["x"], "x.png", { type: "image/png" });
+    expect(checkBeforeSubmit("A perfectly reasonable feature request", png).screenshot).toMatch(
+      /can be published/,
+    );
+    expect(checkBeforeSubmit("A perfectly reasonable feature request", png, true)).toEqual({});
+  });
+
   it("flags unsupported or oversized screenshots", () => {
     const svg = new File(["<svg/>"], "x.svg", { type: "image/svg+xml" });
     expect(checkBeforeSubmit("A perfectly reasonable feature request", svg).screenshot).toMatch(

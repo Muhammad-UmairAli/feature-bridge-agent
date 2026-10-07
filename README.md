@@ -58,7 +58,7 @@ Set sensitive Vercel values for the **Production** environment only, never Previ
 | `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key | Vercel                                                                          | Cloudflare Turnstile widget; built into the page, so public by design                                                                                        |
 | `BOT_CHECK_SECRET_KEY`           | Secret     | Vercel (Production)                                                             | Server-side Turnstile verification                                                                                                                           |
 | `BOT_CHECK_HOSTNAMES`            | Variable   | Vercel (Production)                                                             | Comma-separated hostnames the widget may be served from. Required in production; elsewhere it defaults to the deployment or request host                     |
-| `BLOB_READ_WRITE_TOKEN`          | Secret     | Vercel (Production; created when a Blob store is connected) and Actions secrets | _Planned._ Screenshot storage and the 90-day cleanup job; update both copies when rotated                                                                    |
+| `BLOB_READ_WRITE_TOKEN`          | Secret     | Vercel (Production; created when a Blob store is connected) and Actions secrets | Screenshot storage (the 90-day cleanup job is planned); update both copies when rotated                                                                      |
 | `DAILY_SUBMISSION_CAP`           | Variable   | Vercel (Production)                                                             | Max accepted submissions per UTC day (default 20, at most 1000); resets at midnight UTC                                                                      |
 | `LLM_API_KEY`                    | Secret     | Actions secrets                                                                 | _Planned._ Key for the model provider the agents use                                                                                                         |
 | `LLM_PROVIDER`, `LLM_MODEL`      | Variables  | Actions variables                                                               | _Planned._ Which provider and model the agents call                                                                                                          |
@@ -81,6 +81,16 @@ The portal creates and reads request issues as a GitHub App, so no personal toke
 Each call uses a short-lived installation token narrowed to that one repository and the single permission it needs.
 
 If GitHub times out after creating an issue, the visitor sees an error and a retry can create a duplicate; maintainers can close duplicates.
+
+### Screenshots and takedowns
+
+Screenshots are public: they're re-encoded (removing metadata such as location), stored in Vercel Blob under random names, linked from the request issue, and deleted after 90 days. Submitters must confirm a screenshot can be published. Use a Blob store dedicated to screenshots, because the token can read and write the whole store.
+
+To take a screenshot down immediately:
+
+1. Delete the file from the Blob store (dashboard, or `del(url)` with the store token).
+2. Edit the request issue and replace the screenshot link with "removed".
+3. Browsers may keep a cached copy for up to an hour.
 
 ## Contributing
 

@@ -11,6 +11,8 @@ import { SCREENSHOT_MAX_BYTES } from "@/lib/requests/validation";
 
 // Node runtime: integrations use node:crypto and the Node Blob SDK.
 export const runtime = "nodejs";
+// Bot check, cap, image re-encoding and upload all have their own timeouts; this bounds the total.
+export const maxDuration = 30;
 
 const ROUTE = "POST /api/v1/requests";
 /** Screenshot limit plus room for the text fields and multipart framing. */

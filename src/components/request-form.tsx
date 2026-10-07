@@ -60,6 +60,7 @@ export function RequestForm({
   };
   const [description, setDescription] = useState("");
   const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [screenshotConsent, setScreenshotConsent] = useState(false);
   const [status, setStatus] = useState<Status>({ state: "editing", message: null, fields: {} });
   const [announcement, setAnnouncement] = useState("");
   const [botCheckToken, setBotCheckToken] = useState<string | null>(null);
@@ -119,7 +120,7 @@ export function RequestForm({
     if (inFlight.current) return; // ignore double submits
     const formElement = event.currentTarget;
 
-    const clientErrors = checkBeforeSubmit(description, screenshot);
+    const clientErrors = checkBeforeSubmit(description, screenshot, screenshotConsent);
     const fieldProblems = Object.keys(clientErrors).length > 0;
     if (!botCheckToken) clientErrors.botCheckToken = COMPLETE_CHECK;
     if (fieldProblems || !botCheckToken) {
@@ -157,6 +158,7 @@ export function RequestForm({
 
   function removeScreenshot() {
     setScreenshot(null);
+    setScreenshotConsent(false);
     const input = screenshotRef.current;
     if (input) {
       // Clear the native file input too, so the file isn't submitted with the form.
@@ -172,6 +174,7 @@ export function RequestForm({
   function startAnother() {
     setDescription("");
     setScreenshot(null);
+    setScreenshotConsent(false);
     setBotCheckToken(null);
     focusDescriptionNext.current = true;
     setStatus({ state: "editing", message: null, fields: {} });
@@ -271,7 +274,8 @@ export function RequestForm({
           Screenshot <span className="font-normal text-muted-foreground">(optional)</span>
         </label>
         <p id={`${ids.screenshot}-hint`} className="text-sm text-muted-foreground">
-          PNG, JPEG or WebP, up to 4 MB. Image metadata such as location is removed.
+          PNG, JPEG or WebP, up to 4 MB. Screenshots are published with the request: blur personal
+          or confidential details first. Image metadata such as location is removed.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <input
@@ -298,6 +302,22 @@ export function RequestForm({
             </button>
           )}
         </div>
+        {screenshot && (
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="screenshotConsent"
+              value="yes"
+              checked={screenshotConsent}
+              onChange={(event) => setScreenshotConsent(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              I understand this screenshot will be public and contains nothing personal or
+              confidential.
+            </span>
+          </label>
+        )}
         {fields.screenshot && (
           <p id={`${ids.screenshot}-error`} className="text-sm text-destructive">
             {fields.screenshot}

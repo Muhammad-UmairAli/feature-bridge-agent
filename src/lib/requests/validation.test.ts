@@ -155,4 +155,13 @@ describe("validateSubmission", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.details.screenshot).toMatch(/as a file/);
   });
+
+  it("requires the publish acknowledgement for a screenshot", async () => {
+    const file = new File([PNG_BYTES], "s.png");
+    const result = await validateSubmission(
+      validForm({ screenshot: file, screenshotConsent: false }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.details.screenshot).toMatch(/can be published/);
+  });
 });
