@@ -3,7 +3,9 @@ import { randomUUID } from "node:crypto";
 import { readBodyWithLimit } from "@/lib/api/body";
 import { HttpError, errorResponse, ok } from "@/lib/api/envelope";
 import { log } from "@/lib/log";
-import { getSubmissionDeps } from "@/lib/requests/deps";
+import { BOT_CHECK_REJECTED_MESSAGE, isPlausibleToken } from "@/lib/bot-check/turnstile";
+import { BOT_CHECK_HEADER } from "@/lib/bot-check/turnstile-shared";
+import { getBotCheck, getSubmissionDeps } from "@/lib/requests/deps";
 import { submitRequest } from "@/lib/requests/submit";
 import { SCREENSHOT_MAX_BYTES } from "@/lib/requests/validation";
 
@@ -26,6 +28,13 @@ export async function POST(request: Request): Promise<Response> {
         "Send the request as multipart/form-data.",
       );
     }
+
+    // Verify the visitor before spending effort on a body of up to ~4 MB.
+    const token = request.headers.get(BOT_CHECK_HEADER)?.trim() ?? "";
+    if (!isPlausibleToken(token)) {
+      throw new HttpError(403, "BOT_CHECK_FAILED", BOT_CHECK_REJECTED_MESSAGE);
+    }
+    await getBotCheck(request.headers.get("host"), requestId)(token);
 
     const body = await readBodyWithLimit(request, MAX_BODY_BYTES);
     let form: FormData;

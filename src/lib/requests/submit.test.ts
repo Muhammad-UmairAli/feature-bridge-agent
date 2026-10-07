@@ -9,7 +9,6 @@ import { type SubmissionDeps, submitRequest } from "./submit";
 function fakeDeps(overrides: Partial<SubmissionDeps> = {}) {
   const calls: string[] = [];
   const deps: SubmissionDeps = {
-    verifyBotCheck: vi.fn(async () => void calls.push("bot")),
     assertWithinDailyCap: vi.fn(async () => void calls.push("cap")),
     storeScreenshot: vi.fn(async () => {
       calls.push("store");
@@ -26,12 +25,12 @@ function fakeDeps(overrides: Partial<SubmissionDeps> = {}) {
 }
 
 describe("submitRequest", () => {
-  it("runs the checks in order and returns the tracking link", async () => {
+  it("runs cap, storage and issue creation in order and returns the tracking link", async () => {
     const { deps, calls } = fakeDeps();
     const file = new File([PNG_BYTES], "s.png");
     const result = await submitRequest(validForm({ screenshot: file }), deps);
     expect(result).toEqual({ id: 42, trackingUrl: "/requests/42" });
-    expect(calls).toEqual(["bot", "cap", "store", "issue"]);
+    expect(calls).toEqual(["cap", "store", "issue"]);
     expect(deps.createRequestIssue).toHaveBeenCalledWith({
       description: expect.any(String),
       screenshotUrl: "https://blob.example/screenshots/a.png",
@@ -41,7 +40,7 @@ describe("submitRequest", () => {
   it("skips storage when there is no screenshot", async () => {
     const { deps, calls } = fakeDeps();
     await submitRequest(validForm(), deps);
-    expect(calls).toEqual(["bot", "cap", "issue"]);
+    expect(calls).toEqual(["cap", "issue"]);
     expect(deps.createRequestIssue).toHaveBeenCalledWith(
       expect.objectContaining({ screenshotUrl: null }),
     );
@@ -67,7 +66,7 @@ describe("submitRequest", () => {
     ).rejects.toMatchObject({
       status: 429,
     });
-    expect(calls).toEqual(["bot"]);
+    expect(calls).toEqual([]);
     expect(deps.storeScreenshot).not.toHaveBeenCalled();
     expect(deps.createRequestIssue).not.toHaveBeenCalled();
   });
@@ -83,7 +82,7 @@ describe("submitRequest", () => {
     ).rejects.toMatchObject({
       status: 502,
     });
-    expect(calls).toEqual(["bot", "cap", "store", "discard"]);
+    expect(calls).toEqual(["cap", "store", "discard"]);
     expect(deps.discardScreenshot).toHaveBeenCalledWith("https://blob.example/screenshots/a.png");
   });
 

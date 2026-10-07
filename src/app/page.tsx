@@ -17,7 +17,8 @@ export default function Home() {
           </Link>
         </p>
       </header>
-      <RequestForm />
+      {/* NEXT_PUBLIC_ values are inlined at build time and are public by design. */}
+      <RequestForm botCheckSiteKey={process.env.NEXT_PUBLIC_BOT_CHECK_SITE_KEY} />
     </section>
   );
 }

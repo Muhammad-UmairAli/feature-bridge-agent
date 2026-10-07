@@ -68,7 +68,7 @@ describe("validateSubmission", () => {
     const result = await validateSubmission(validForm());
     expect(result).toEqual({
       ok: true,
-      value: { description: VALID_DESCRIPTION, screenshot: null, botCheckToken: "token-123" },
+      value: { description: VALID_DESCRIPTION, screenshot: null },
     });
   });
 
@@ -90,11 +90,7 @@ describe("validateSubmission", () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(Object.keys(result.details).sort()).toEqual([
-        "botCheckToken",
-        "description",
-        "screenshot",
-      ]);
+      expect(Object.keys(result.details).sort()).toEqual(["description", "screenshot"]);
     }
   });
 
@@ -144,11 +140,12 @@ describe("validateSubmission", () => {
   it("rejects duplicated fields", async () => {
     const form = validForm();
     form.append("description", VALID_DESCRIPTION);
-    form.append("botCheckToken", "again");
+    form.append("screenshot", new File([PNG_BYTES], "a.png"));
+    form.append("screenshot", new File([PNG_BYTES], "b.png"));
     const result = await validateSubmission(form);
     expect(result.ok).toBe(false);
     if (!result.ok)
-      expect(Object.keys(result.details).sort()).toEqual(["botCheckToken", "description"]);
+      expect(Object.keys(result.details).sort()).toEqual(["description", "screenshot"]);
   });
 
   it("rejects a screenshot sent as text", async () => {
