@@ -29,14 +29,16 @@ export interface ApiErrorBody {
 
 /** An expected failure that maps directly to an HTTP response. */
 export class HttpError extends Error {
-  constructor(
-    readonly status: ErrorStatus,
-    readonly code: ErrorCode,
-    message: string,
-    readonly details: ErrorDetails = null,
-  ) {
+  readonly status: ErrorStatus;
+  readonly code: ErrorCode;
+  readonly details: ErrorDetails;
+
+  constructor(status: ErrorStatus, code: ErrorCode, message: string, details: ErrorDetails = null) {
     super(message);
     this.name = "HttpError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
   }
 }
 

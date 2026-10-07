@@ -1,0 +1,58 @@
+name: Clean up screenshots
+
+# Deletes stored screenshots after 90 days (replacing their links in request
+# issues with "removed") and removes orphaned uploads after 24 hours. A failed
+# run fails the workflow, which notifies the maintainer.
+#
+# Off until the repository variable SCREENSHOT_CLEANUP is "on" (set it when the
+# Blob store is configured); from then on a missing token fails the run. The
+# token lives in the "screenshot-cleanup" environment, limited to main.
+on:
+  schedule:
+    - cron: "17 3 * * *" # daily, 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report what would be deleted without changing anything
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: cleanup-screenshots
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  cleanup:
+    name: Clean up screenshots
+    if: vars.SCREENSHOT_CLEANUP == 'on'
+    runs-on: ubuntu-latest
+    environment: screenshot-cleanup
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write # replace links to deleted screenshots
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      # No dependency cache in a job that holds the Blob token; production deps only.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - run: pnpm install --frozen-lockfile --prod
+      - name: Clean up
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CLEANUP_REQUIRED: "true"
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          # Scheduled runs make changes; manual runs default to a dry run.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: node scripts/cleanup/run.mts

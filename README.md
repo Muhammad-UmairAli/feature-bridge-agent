@@ -58,7 +58,7 @@ Set sensitive Vercel values for the **Production** environment only, never Previ
 | `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key          | Vercel                                                                          | Cloudflare Turnstile widget; built into the page, so public by design                                                                                        |
 | `BOT_CHECK_SECRET_KEY`           | Secret              | Vercel (Production)                                                             | Server-side Turnstile verification                                                                                                                           |
 | `BOT_CHECK_HOSTNAMES`            | Variable            | Vercel (Production)                                                             | Comma-separated hostnames the widget may be served from. Required in production; elsewhere it defaults to the deployment or request host                     |
-| `BLOB_READ_WRITE_TOKEN`          | Secret              | Vercel (Production; created when a Blob store is connected) and Actions secrets | Screenshot storage (the 90-day cleanup job is planned); update both copies when rotated                                                                      |
+| `BLOB_READ_WRITE_TOKEN`          | Secret              | Vercel (Production; created when a Blob store is connected) and Actions secrets | Screenshot storage, and the daily cleanup workflow (set it in both places); update both copies when rotated                                                  |
 | `DAILY_SUBMISSION_CAP`           | Variable            | Vercel (Production)                                                             | Max accepted submissions per UTC day (default 20, at most 1000); resets at midnight UTC                                                                      |
 | `PREVIEW_HOST_SUFFIXES`          | Variable (optional) | Vercel (Production)                                                             | Host suffixes trusted for preview links on the tracking page (default `.vercel.app`)                                                                         |
 | `LLM_API_KEY`                    | Secret              | Actions secrets                                                                 | _Planned._ Key for the model provider the agents use                                                                                                         |
@@ -85,7 +85,9 @@ If GitHub times out after creating an issue, the visitor sees an error and a ret
 
 ### Screenshots and takedowns
 
-Screenshots are public: they're re-encoded (removing metadata such as location), stored in Vercel Blob under random names, linked from the request issue, and deleted after 90 days. Submitters must confirm a screenshot can be published. Use a Blob store dedicated to screenshots, because the token can read and write the whole store.
+Screenshots are public: they're re-encoded (removing metadata such as location), stored in Vercel Blob under random names, linked from the request issue, and deleted after 90 days by the daily "Clean up screenshots" workflow, which also removes orphaned uploads after 24 hours. Run it manually from the Actions tab (dry run by default) to preview changes.
+
+To turn the cleanup on: create a GitHub Environment named `screenshot-cleanup` limited to the `main` branch, store `BLOB_READ_WRITE_TOKEN` there (not as a repository secret), and set the repository variable `SCREENSHOT_CLEANUP` to `on`. Optionally set `PORTAL_BOT_LOGIN` to the App's bot login (for example `your-app[bot]`) so only its issues are edited. Submitters must confirm a screenshot can be published. Use a Blob store dedicated to screenshots, because the token can read and write the whole store.
 
 To take a screenshot down immediately:
 

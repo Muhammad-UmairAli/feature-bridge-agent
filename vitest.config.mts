@@ -9,11 +9,11 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     // Only the app's own sources; keeps runs fast and scoped.
-    include: ["src/**/*.test.{ts,tsx}", "agents/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}", "agents/**/*.test.ts", "scripts/**/*.test.mts"],
     coverage: {
       provider: "v8",
-      include: ["src/**/*.{ts,tsx}", "agents/**/*.ts"],
-      exclude: ["**/*.test.{ts,tsx}"],
+      include: ["src/**/*.{ts,tsx}", "agents/**/*.ts", "scripts/**/*.mts"],
+      exclude: ["**/*.test.{ts,tsx,mts}"],
     },
   },
 });
