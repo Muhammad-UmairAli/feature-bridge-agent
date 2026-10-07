@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js and build output (anchored so same-named app routes aren't ignored)
+/.next/
+/out/
+/build/
+/dist/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Test and tool output
+/coverage/
+/playwright-report/
+/test-results/
+.eslintcache
+
+# Vercel
+.vercel/
+
+# Environment files: never commit real values. Only the placeholder template is tracked.
+.env
+.env.*
+!.env.example
+.envrc
+
+# Private keys and certificates
+*.pem
+*.key
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
