@@ -20,13 +20,17 @@
     ],
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
   },
   "include": [
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "agents/**/*.ts",
+    "scripts/**/*.mts",
     "*.ts",
     "*.mts",
     ".next/types/**/*.ts",

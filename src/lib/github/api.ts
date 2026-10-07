@@ -22,10 +22,9 @@ export interface GitHubRequest {
 
 /** A failed GitHub call; `status` is GitHub's HTTP status (0 when unreachable). */
 export class GitHubError extends HttpError {
-  constructor(
-    readonly upstreamStatus: number,
-    transient: boolean,
-  ) {
+  readonly upstreamStatus: number;
+
+  constructor(upstreamStatus: number, transient: boolean) {
     super(
       transient ? 503 : 502,
       transient ? "SERVICE_UNAVAILABLE" : "UPSTREAM_ERROR",
@@ -33,6 +32,7 @@ export class GitHubError extends HttpError {
         ? "GitHub is unavailable right now. Please try again later."
         : "We couldn't reach GitHub correctly. Please try again later.",
     );
+    this.upstreamStatus = upstreamStatus;
   }
 }
 

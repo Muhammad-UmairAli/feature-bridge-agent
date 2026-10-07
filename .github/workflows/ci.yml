@@ -44,6 +44,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # The cleanup script runs under plain Node; make sure it still loads.
+      - name: Cleanup script loads
+        run: node scripts/cleanup/run.mts
 
   pre-commit:
     name: Pre-commit hooks
