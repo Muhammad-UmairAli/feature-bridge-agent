@@ -23,7 +23,7 @@ repos:
       - id: check-merge-conflict
       - id: check-case-conflict
       - id: check-added-large-files
-        args: [--maxkb=2048]
+        args: [--maxkb=2048, --enforce-all]
       - id: mixed-line-ending
         args: [--fix=lf]
 

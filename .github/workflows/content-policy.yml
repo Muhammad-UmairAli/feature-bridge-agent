@@ -1,0 +1,121 @@
+name: Content policy
+
+# Checks pull request files, commits and text against a private pattern list
+# kept in the CONTENT_POLICY_PATTERNS repository secret. Separate from CI so
+# edits to a PR's title or description re-run only this check.
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  content-policy:
+    name: Content policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check files, commits and PR text
+        # Untrusted PR fields arrive via env (never interpolated into the
+        # script). Output reports counts only and errors are silenced, so the
+        # patterns never appear in public logs.
+        env:
+          PATTERNS: ${{ secrets.CONTENT_POLICY_PATTERNS }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          umask 077
+          if [ -z "$PATTERNS" ]; then
+            if [ "$IS_FORK" = "true" ]; then
+              echo "::warning::Content policy not checked: secrets are unavailable to fork pull requests. A maintainer must review this PR manually."
+              exit 0
+            fi
+            echo "::error::CONTENT_POLICY_PATTERNS is not configured for this repository."
+            exit 1
+          fi
+
+          patterns="$RUNNER_TEMP/patterns"
+          trap 'rm -f "$patterns"' EXIT
+          printf '%s\n' "$PATTERNS" | tr -d '\r' | { grep -v -E '^[[:space:]]*(#|$)' || true; } > "$patterns"
+          if [ ! -s "$patterns" ]; then
+            echo "::error::CONTENT_POLICY_PATTERNS contains no usable patterns."
+            exit 1
+          fi
+          rc=0
+          grep -E -f "$patterns" < /dev/null > /dev/null 2>&1 || rc=$?
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::CONTENT_POLICY_PATTERNS contains an invalid pattern."
+            exit 1
+          fi
+
+          # The checkout is the PR merge commit: parent 1 is the base tip,
+          # parent 2 is the PR head.
+          base=$(git rev-parse HEAD^1)
+          head=$(git rev-parse HEAD^2)
+
+          hits=0
+          # Text is passed as an argument (not piped) so `hits` updates in this
+          # shell. grep exit 1 = no match; >1 = error, which fails closed.
+          check() { # check <label> <text>
+            local n rc=0
+            n=$(printf '%s\n' "$2" | grep -c -i -E -f "$patterns" 2> /dev/null) || rc=$?
+            if [ "$rc" -gt 1 ]; then
+              echo "::error::Content policy: pattern error while checking $1."
+              hits=$((hits + 1))
+            elif [ "$n" -gt 0 ]; then
+              echo "::error::Content policy: $n matching line(s) in $1."
+              hits=$((hits + 1))
+            fi
+          }
+
+          # Each value is captured on its own line so a failing git command
+          # stops the job (bash -e) instead of checking empty text.
+          # Current tree plus every path the PR's commits touched (catches
+          # files added and deleted again within the PR).
+          paths=$(git ls-files)
+          touched=$(git log --format= --name-only "$base..$head")
+          check "file paths" "$(printf '%s\n%s' "$paths" "$touched")"
+
+          rc=0
+          files=$(git grep -l -I -i -E -f "$patterns" 2> /dev/null) || rc=$?
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::Content policy: pattern error while checking file contents."
+            hits=$((hits + 1))
+          elif [ -n "$files" ]; then
+            echo "::error::Content policy: $(printf '%s\n' "$files" | wc -l) file(s) contain matching text."
+            hits=$((hits + 1))
+          fi
+
+          log=$(git log --format='%an <%ae>%n%cn <%ce>%n%B' "$base..$head")
+          check "commit messages or authors" "$log"
+
+          # Lines added anywhere in the PR's commits, including ones removed later.
+          patch=$(git log -p --format= --no-color --no-ext-diff --no-textconv --text "$base..$head")
+          added=$(printf '%s\n' "$patch" | { grep '^+' || true; } | { grep -v '^+++ ' || true; })
+          check "lines added by the PR's commits" "$added"
+
+          check "the pull request title, description or branch name" \
+            "$(printf '%s\n%s\n%s' "$PR_TITLE" "$PR_BODY" "$HEAD_REF")"
+
+          if [ "$hits" -gt 0 ]; then
+            echo "Run the local content check before pushing to see the exact matches."
+            exit 1
+          fi
+          echo "Content policy: no matches."
