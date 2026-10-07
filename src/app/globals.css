@@ -1,35 +1,145 @@
-/* Base styles. Theme tokens and the theme picker arrive with the UI kit. */
-:root {
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* "dark:" utilities apply whenever the Light theme is not selected (Dark is the default). */
+@custom-variant dark (&:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *));
+
+@theme inline {
+  --font-heading: var(--font-geist-sans);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Theme tokens. Dark is the default (no attribute needed); Light is opt-in via
+ * data-theme="light" on <html>. Text pairs meet WCAG AA (4.5:1); form-control
+ * borders (--input) meet the 3:1 non-text contrast minimum.
+ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #090909;
+  --foreground: #ffffff;
+  --card: #141414;
+  --card-foreground: #ffffff;
+  --popover: #141414;
+  --popover-foreground: #ffffff;
+  --primary: #0099ff;
+  --primary-foreground: #090909;
+  --secondary: #1c1c1c;
+  --secondary-foreground: #ffffff;
+  --muted: #141414;
+  --muted-foreground: #999999;
+  --accent: #1c1c1c;
+  --accent-foreground: #ffffff;
+  --destructive: #ff5577;
+  --border: #262626;
+  --input: #6b6b6b;
+  --ring: #0099ff;
+  --chart-1: #0099ff;
+  --chart-2: #22c55e;
+  --chart-3: #ff7a3d;
+  --chart-4: #a78bfa;
+  --chart-5: #999999;
+  --radius: 0.625rem;
+  --sidebar: #141414;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #0099ff;
+  --sidebar-primary-foreground: #090909;
+  --sidebar-accent: #1c1c1c;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #262626;
+  --sidebar-ring: #0099ff;
+}
+
+/* :root qualifier keeps Light above the :root defaults regardless of source order. */
+:root[data-theme="light"] {
+  color-scheme: light;
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #111111;
+  --card: #ffffff;
+  --card-foreground: #111111;
+  --popover: #ffffff;
+  --popover-foreground: #111111;
+  --primary: #0070cc;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #111111;
+  --muted: #f4f4f5;
+  --muted-foreground: #595959;
+  --accent: #f4f4f5;
+  --accent-foreground: #111111;
+  --destructive: #c8102e;
+  --border: #e4e4e7;
+  --input: #8a8a8a;
+  --ring: #0070cc;
+  --chart-1: #0070cc;
+  --chart-2: #15803d;
+  --chart-3: #c2410c;
+  --chart-4: #6d28d9;
+  --chart-5: #595959;
+  --sidebar: #f4f4f5;
+  --sidebar-foreground: #111111;
+  --sidebar-primary: #0070cc;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e4e4e7;
+  --sidebar-accent-foreground: #111111;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #0070cc;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring;
   }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  margin: 0;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
-}
-
-main {
-  max-width: 48rem;
-  margin: 0 auto;
-  padding: 3rem 1rem;
-}
-
-a {
-  color: inherit;
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Visible keyboard focus everywhere; the ring color meets 3:1 against both themes. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
