@@ -4,9 +4,11 @@ export const metadata: Metadata = { title: "Demos" };
 
 export default function DemosIndex() {
   return (
-    <main>
-      <h1>Demos</h1>
-      <p>Features built from approved requests appear here. There are none yet.</p>
-    </main>
+    <section className="space-y-4">
+      <h1 className="text-3xl font-semibold tracking-tight">Demos</h1>
+      <p className="text-muted-foreground">
+        Features built from approved requests appear here. There are none yet.
+      </p>
+    </section>
   );
 }
