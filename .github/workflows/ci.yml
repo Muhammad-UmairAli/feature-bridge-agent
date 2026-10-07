@@ -1,0 +1,105 @@
+name: CI
+
+# Runs on pull requests into develop and main. Branch protection routes every
+# change through a pull request, so PR coverage is complete; adding a push
+# trigger would only duplicate runs on the same commit.
+#
+# Fork-safe: uses `pull_request` (never `pull_request_target`), so fork code
+# runs without secrets and with a read-only token.
+on:
+  pull_request:
+    branches: [develop, main]
+
+# No default token scopes; each job grants only what it needs.
+permissions: {}
+
+# A new push to the same PR cancels the stale run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  checks:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # pnpm version comes from the packageManager field in package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The Prettier hook runs the project's own Prettier, so install first.
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Run all hooks on all files
+        env:
+          # The gitleaks hook only sees staged changes; the secret-scan job
+          # below scans the full history instead.
+          SKIP: gitleaks
+        run: pipx run 'pre-commit==4.6.2' run --all-files --show-diff-on-failure
+
+  secret-scan:
+    name: Secret scan (git history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks (checksum-verified)
+        env:
+          GITLEAKS_VERSION: 8.30.0
+          GITLEAKS_SHA256: 79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL -o "$archive" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan full history
+        run: |
+          # Built-in rules only, from a path outside the checkout, so a PR
+          # can't weaken the scan by adding its own .gitleaks.toml or .gitleaksignore.
+          printf '[extend]\nuseDefault = true\n' > "$RUNNER_TEMP/gitleaks.toml"
+          "$RUNNER_TEMP/gitleaks" git . \
+            --config "$RUNNER_TEMP/gitleaks.toml" \
+            --gitleaks-ignore-path "$RUNNER_TEMP" \
+            --redact --no-banner --exit-code 1
