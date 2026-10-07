@@ -14,6 +14,8 @@ repos:
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
       - id: check-yaml
+        # pnpm's lockfile contains multiple YAML documents.
+        args: [--allow-multiple-documents]
       - id: check-json
         # These allow comments (JSONC), which strict JSON parsing rejects.
         exclude: ^(\.vscode/|tsconfig.*\.json$)
