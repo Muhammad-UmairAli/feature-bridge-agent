@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint --no-error-on-unmatched-pattern src agents scripts \"*.{ts,mts,mjs}\"",
+    "lint": "eslint src agents scripts \"*.{ts,mts,mjs}\"",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
