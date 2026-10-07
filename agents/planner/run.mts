@@ -4,7 +4,8 @@
  * Environment: GITHUB_TOKEN, GITHUB_REPOSITORY, ISSUE_NUMBER, PORTAL_BOT_LOGIN,
  * the LLM_* settings, and optionally LLM_IMAGE_INPUT=on. Logs JSON lines with
  * counts and outcomes only. Exits non-zero when planning failed, so the run
- * shows as failed and the maintainer is notified.
+ * shows as failed (the workflow then makes sure the request is marked for a
+ * maintainer).
  */
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";

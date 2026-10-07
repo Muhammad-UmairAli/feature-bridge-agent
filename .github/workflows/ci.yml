@@ -47,6 +47,12 @@ jobs:
       # The cleanup script runs under plain Node; make sure it still loads.
       - name: Cleanup script loads
         run: node scripts/cleanup/run.mts
+      # So does the planning agent: with no settings it must start and report
+      # them missing (Vitest accepts syntax Node's type stripping rejects).
+      - name: Planning agent loads
+        run: |
+          out=$(env -i PATH="$PATH" node agents/planner/run.mts 2>&1) || true
+          grep -q '"event":"planner.misconfigured"' <<<"$out"
 
   pre-commit:
     name: Pre-commit hooks

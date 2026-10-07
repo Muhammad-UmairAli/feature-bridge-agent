@@ -17,12 +17,12 @@ parameter properties); `pnpm typecheck` enforces this.
 
 ## Model configuration
 
-| Name                         | Where                   | Notes                                                                            |
-| ---------------------------- | ----------------------- | -------------------------------------------------------------------------------- |
-| `LLM_BASE_URL`               | Actions variable        | OpenAI-compatible API base, `https://` only, e.g. `https://openrouter.ai/api/v1` |
-| `LLM_MODEL`                  | Actions variable        | Model id as the provider names it                                                |
-| `LLM_API_KEY`                | Actions secret          | Provider API key                                                                 |
-| `LLM_MAX_TOKENS_PER_REQUEST` | Actions variable (opt.) | Token budget for one agent run, prompt plus reply (default 50,000)               |
+| Name                         | Where                              | Notes                                                                            |
+| ---------------------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
+| `LLM_BASE_URL`               | Actions variable                   | OpenAI-compatible API base, `https://` only, e.g. `https://openrouter.ai/api/v1` |
+| `LLM_MODEL`                  | Actions variable                   | Model id as the provider names it                                                |
+| `LLM_API_KEY`                | Secret in the `agents` environment | Provider API key; no repository- or organization-level secret with this name     |
+| `LLM_MAX_TOKENS_PER_REQUEST` | Actions variable (opt.)            | Token budget for one agent run, prompt plus reply (default 50,000)               |
 
 Before each call the adapter reserves its worst case (estimated prompt plus the reply
 limit) and refuses the call if that doesn't fit; afterwards it counts the reported usage,

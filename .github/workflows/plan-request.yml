@@ -1,0 +1,110 @@
+name: Plan request
+
+# Runs the planning agent when the portal creates a request issue: it posts an
+# implementation plan and labels the issue plan-ready, or needs-human-triage
+# when a maintainer is needed.
+#
+# Off until the repository variable PORTAL_BOT_LOGIN is set (forks do nothing).
+# The model key lives in the "agents" environment, limited to the default
+# branch, and only the planning step sees it. No dependencies are installed:
+# the agent uses Node's standard library only.
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+# One run per issue at a time, so a plan can't be posted twice.
+concurrency:
+  group: plan-request-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  plan:
+    name: Plan request
+    # Issues opened directly on GitHub skip the portal's bot check and daily cap.
+    # PORTAL_BOT_LOGIN must be a repository variable: environment variables
+    # aren't visible here.
+    if: >-
+      vars.PORTAL_BOT_LOGIN != '' &&
+      github.event.issue.user.type == 'Bot' &&
+      github.event.issue.user.login == vars.PORTAL_BOT_LOGIN &&
+      contains(github.event.issue.labels.*.name, 'portal-request')
+    runs-on: ubuntu-latest
+    environment: agents
+    timeout-minutes: 20
+    permissions:
+      contents: read # AGENTS.md and the file list
+      issues: write # one comment and status labels
+    steps:
+      # The default branch, never a ref from the event: its AGENTS.md is trusted.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      # Fails before the agent touches the issue; the hand-over below then marks
+      # it for a maintainer.
+      - name: Check configuration
+        env:
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          HAS_LLM_API_KEY: ${{ secrets.LLM_API_KEY != '' }}
+        run: |
+          missing=()
+          [[ -n "$LLM_BASE_URL" ]] || missing+=("LLM_BASE_URL (variable)")
+          [[ -n "$LLM_MODEL" ]] || missing+=("LLM_MODEL (variable)")
+          [[ "$HAS_LLM_API_KEY" == "true" ]] || missing+=("LLM_API_KEY (secret in the agents environment)")
+          if (( ${#missing[@]} > 0 )); then
+            printf '::error::The planning agent is not configured. Missing: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MAX_TOKENS_PER_REQUEST: ${{ vars.LLM_MAX_TOKENS_PER_REQUEST }}
+          LLM_IMAGE_INPUT: ${{ vars.LLM_IMAGE_INPUT }}
+        run: node agents/planner/run.mts
+
+      # Any failure, cancellation or timeout before the request got a status
+      # would leave it "planning" (or blank) forever. Plain gh, so it works even
+      # if Node setup failed; it never contradicts a plan that was posted.
+      - name: Hand over to a maintainer
+        if: failure() || cancelled()
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          labels=$(gh issue view "$ISSUE_NUMBER" --repo "$repo" --json labels \
+            --jq '[.labels[].name] | join(",")') || labels=""
+          case ",$labels," in
+            *,needs-human-triage,* | *,plan-ready,* | *,approved-by-human,*)
+              echo "The request already has a status; nothing to do."
+              exit 0
+              ;;
+          esac
+          # Same marker and author as agents/planner/plan.mts and planner.mts.
+          plans=$(gh api --paginate "repos/$repo/issues/$ISSUE_NUMBER/comments" \
+            --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- feature-bridge-agent:plan revision=")))] | length' \
+            | awk '{ total += $1 } END { print total + 0 }') || plans=0
+          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label planning || true
+          rc=0
+          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --add-label needs-human-triage || rc=$?
+          if [[ "$plans" == "0" ]]; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$(printf '%s\n### Planning stopped\n\nThe planning run failed, was cancelled or timed out. A maintainer will take it from here.' '<!-- feature-bridge-agent:planning-stopped -->')" || rc=$?
+          fi
+          exit "$rc"
