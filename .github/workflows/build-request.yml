@@ -77,5 +77,7 @@ jobs:
           repo="$GITHUB_REPOSITORY"
           rc=0
           gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label approved-by-human || rc=$?
-          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$(printf '%s\n### Approval not checked\n\nThe approval check failed, was cancelled or timed out, so the `approved-by-human` label was removed. Apply it again to retry.' '<!-- feature-bridge-agent:approval-refused -->')" || rc=$?
+          body=$(printf '%s\n### Approval not checked\n\nThe approval check failed, was cancelled or timed out, so the %s label was removed. Apply it again to retry.' \
+            '<!-- feature-bridge-agent:approval-refused -->' 'approved-by-human')
+          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$body" || rc=$?
           exit "$rc"
