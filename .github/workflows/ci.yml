@@ -53,6 +53,10 @@ jobs:
         run: |
           out=$(env -i PATH="$PATH" node agents/planner/run.mts 2>&1) || true
           grep -q '"event":"planner.misconfigured"' <<<"$out"
+      - name: Approval gate loads
+        run: |
+          out=$(env -i PATH="$PATH" node agents/gate/run.mts 2>&1) || true
+          grep -q '"event":"gate.misconfigured"' <<<"$out"
 
   pre-commit:
     name: Pre-commit hooks

@@ -52,7 +52,10 @@ export function isAllowedDemoPath(path: string, slug: string): boolean {
 
 /** Things plan text may not mention, with the fixed reason each one adds. */
 const TEXT_RULES: [RegExp, string][] = [
-  [/\bhttps?:\/\//i, "the plan mentions an external URL"],
+  [
+    /\b(?:https?|wss?):\/\/|(?:^|[\s("'=])\/\/[\w-]+\.[\w.-]+/i,
+    "the plan mentions an external URL",
+  ],
   [
     /\bpackage\.json\b|pnpm-lock|\b(?:pnpm|npm|yarn|bun)\s+(?:add|install|i)\b|\bnpx\b/i,
     "the plan mentions installing or changing dependencies",
@@ -62,11 +65,16 @@ const TEXT_RULES: [RegExp, string][] = [
     "the plan mentions repository configuration, environment variables or secrets",
   ],
   [
-    /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bsendBeacon\b|\bserver actions?\b|["']use server["']/i,
+    /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\b|\bEventSource\b|\bsendBeacon\b|\bpostMessage\b|\bwindow\.open\b|\bserver actions?\b|["']use server["']|\bimport\s*\(/i,
     "the plan mentions network calls or server code",
   ],
   [
-    /\bdangerouslySetInnerHTML\b|\beval\s*\(|\bnew Function\b|<script|<iframe/i,
+    /\bdangerouslySetInnerHTML\b|\b(?:inner|outer)HTML\b|\binsertAdjacentHTML\b|\bdocument\.write\b|\beval\s*\(|\bsrcdoc\b/i,
+    "the plan mentions code injection or embedded content",
+  ],
+  // Case-sensitive, so "a helper function (pure)" and Next's <Link> don't match.
+  [
+    /\bnew Function\b|\bFunction\s*\(|<(?:script|iframe|object|embed|link)\b/,
     "the plan mentions code injection or embedded content",
   ],
 ];
@@ -127,22 +135,79 @@ export function checkScope(plan: Plan, slug: string): ScopeCheck {
   if (plan.parse.alteredPaths > 0) add("a planned path contained hidden characters");
   if (plan.parse.droppedItems > 0) add("parts of the plan were cut to fit");
 
-  const text = [
-    plan.title,
-    plan.summary,
-    ...plan.steps,
-    ...plan.tests,
-    ...plan.concerns,
-    ...plan.files.map((file) => file.purpose),
-  ].join("\n");
-  for (const [pattern, reason] of TEXT_RULES) if (pattern.test(text)) add(reason);
-  if (pathLikeWords(text).some((word) => !isAllowedReference(word, slug))) {
-    add("the plan text names files or folders outside the demo folder");
-  }
+  scanText(
+    [
+      plan.title,
+      plan.summary,
+      ...plan.steps,
+      ...plan.tests,
+      ...plan.concerns,
+      ...plan.files.map((file) => file.purpose),
+    ].join("\n"),
+    slug,
+    add,
+  );
 
   for (const need of plan.needs) add(NEEDS[need]);
   if (plan.instructionsInRequest) {
     add("the request text appears to contain instructions aimed at the agent");
   }
   return { reasons, rejectedPaths, needs: plan.needs };
+}
+
+/** Adds a reason for anything in the text that points outside the demo folder. */
+function scanText(text: string, slug: string, add: (reason: string) => void) {
+  for (const [pattern, reason] of TEXT_RULES) if (pattern.test(text)) add(reason);
+  if (pathLikeWords(text).some((word) => !isAllowedReference(word, slug))) {
+    add("the plan text names files or folders outside the demo folder");
+  }
+}
+
+/** One line of a posted plan's Files section: `- <path> (<action>)[: purpose]`. */
+const FILE_LINE = /^- (\S+) \((create|modify|unrecognised action)\)(?::|$)/;
+
+/**
+ * The same checks, run again on a plan as it was posted (the text inside its
+ * fence), for whoever acts on an approval: labels can be changed by anyone with
+ * triage access, so the posted plan itself must still be in scope.
+ */
+export function checkPlanText(text: string, slug: string): string[] {
+  const reasons: string[] = [];
+  const add = (reason: string) => {
+    if (!reasons.includes(reason)) reasons.push(reason);
+  };
+  const lines = text.split("\n");
+  // The last "Files" line: a title or summary can be the word itself, but every
+  // line after the real heading starts with "-" or a step number.
+  const start = lines.lastIndexOf("Files");
+  const fileLines: string[] = [];
+  for (let i = start + 1; start !== -1 && i < lines.length && lines[i] !== ""; i += 1) {
+    fileLines.push(lines[i]);
+  }
+  if (fileLines.length === 0) add("the plan's file list couldn't be read");
+
+  const paths: string[] = [];
+  for (const line of fileLines) {
+    const match = FILE_LINE.exec(line);
+    if (!match) {
+      add("the plan's file list couldn't be read");
+      continue;
+    }
+    paths.push(match[1]);
+    if (match[2] === "unrecognised action") {
+      add("a planned file has an action other than create or modify");
+    }
+  }
+  const rejected = paths.filter((path) => !isAllowedDemoPath(path, slug)).length;
+  if (rejected > 0) {
+    add(
+      `${rejected} planned file${rejected === 1 ? " is" : "s are"} outside \`src/app/demos/${slug}/\` or not allowed there`,
+    );
+  }
+  if (new Set(paths).size !== paths.length) add("the plan lists the same file more than once");
+  if (paths.length > 0 && !paths.includes(`src/app/demos/${slug}/page.tsx`)) {
+    add("the plan has no `page.tsx`");
+  }
+  scanText(text, slug, add);
+  return reasons;
 }

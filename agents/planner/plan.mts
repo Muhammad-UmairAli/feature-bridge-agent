@@ -152,14 +152,16 @@ function fenceFor(text: string): string {
 }
 
 /**
- * Hidden marker identifying the agent's plan comments: the revision number and
- * a hash of the request text the plan was made from, so later steps can tell
- * when a plan no longer matches an edited request.
+ * Hidden marker identifying the agent's plan comments: the revision number, a
+ * fingerprint of the request the plan was made from (so later steps can tell
+ * when the request changed), and whether the plan passed every check when it
+ * was posted (`ready=1`). Labels can be changed by hand; this record can't be
+ * changed without editing the comment, which the approval gate refuses.
  */
 export const PLAN_MARKER =
-  /^<!-- feature-bridge-agent:plan revision=(\d+)(?: request=([0-9a-f]{16}))? -->/;
-export const planMarker = (revision: number, requestHash?: string) =>
-  `<!-- feature-bridge-agent:plan revision=${revision}${requestHash ? ` request=${requestHash}` : ""} -->`;
+  /^<!-- feature-bridge-agent:plan revision=(\d+)(?: request=([0-9a-f]{64}))?(?: ready=([01]))? -->/;
+export const planMarker = (revision: number, requestHash?: string, ready?: boolean) =>
+  `<!-- feature-bridge-agent:plan revision=${revision}${requestHash ? ` request=${requestHash}` : ""}${ready === undefined ? "" : ` ready=${ready ? 1 : 0}`} -->`;
 /** The plan text inside a plan comment's fence (already cleaned when it was posted), or null. */
 export function extractPlanText(commentBody: string): string | null {
   const lines = commentBody.replace(/\r\n?/g, "\n").split("\n");
@@ -215,7 +217,7 @@ export function renderPlanComment({
   const fence = fenceFor(planText);
 
   return [
-    planMarker(revision, requestHash),
+    planMarker(revision, requestHash, !triage),
     `### Implementation plan${revision > 1 ? ` (revision ${revision})` : ""}`,
     "",
     `Drafted by the planning agent for the demo route \`/demos/${slug}\`. The plan text is generated and unreviewed.`,

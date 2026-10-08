@@ -7,8 +7,8 @@
  * Callers pass the account object GitHub put in the event payload (`sender`
  * for label events, `comment.user`, `review.user`), never a name taken from
  * text or `github.actor`. This check is necessary but not sufficient: usernames
- * can be freed and re-registered, so workflows acting on comments or reviews
- * also confirm the account still has triage access to the repository, and the
+ * can be freed and re-registered, so every caller (labels, comments, reviews)
+ * also confirms the account still has a role in STEERING_ROLES, and the
  * self-approval rule (approver isn't the issue author) is theirs to apply.
  */
 
@@ -74,3 +74,11 @@ export function isAllowlisted(
   if (account?.type !== "User" || typeof login !== "string" || !LOGIN.test(login)) return false;
   return allowlist.logins.has(login.toLowerCase());
 }
+
+/** Repository roles with at least triage access; only they may steer the agents. Custom roles don't count. */
+export const STEERING_ROLES: ReadonlySet<string> = new Set([
+  "triage",
+  "write",
+  "maintain",
+  "admin",
+]);

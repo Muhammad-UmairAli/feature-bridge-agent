@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { type Plan, parsePlan } from "./plan.mts";
-import { checkScope, isAllowedDemoPath } from "./scope.mts";
+import { type Plan, extractPlanText, parsePlan, renderPlanComment } from "./plan.mts";
+import { checkPlanText, checkScope, isAllowedDemoPath } from "./scope.mts";
 
 const SLUG = "request-7";
 const dir = `src/app/demos/${SLUG}/`;
@@ -212,5 +212,95 @@ describe("checkScope", () => {
     expect(checkScope(parsed, SLUG).reasons).toContain(
       "some planned file entries couldn't be checked",
     );
+  });
+});
+
+describe("checkPlanText", () => {
+  const posted = (overrides: Partial<Plan> = {}) =>
+    extractPlanText(
+      renderPlanComment({
+        plan: plan(overrides),
+        revision: 1,
+        slug: SLUG,
+        requestHash: "0123456789abcdef",
+        triage: false,
+      }),
+    ) as string;
+
+  it("accepts a posted in-scope plan", () => {
+    expect(checkPlanText(posted(), SLUG)).toEqual([]);
+  });
+
+  it("re-checks the files and text of a posted plan", () => {
+    expect(
+      checkPlanText(
+        posted({
+          files: [...plan().files, { path: "package.json", action: "modify", purpose: "" }],
+        }),
+        SLUG,
+      ),
+    ).toContain("1 planned file is outside `src/app/demos/request-7/` or not allowed there");
+    expect(checkPlanText(posted({ steps: ["Load https://x.test/data"] }), SLUG)).toContain(
+      "the plan mentions an external URL",
+    );
+    expect(
+      checkPlanText(
+        posted({ files: [{ path: `${dir}page.tsx`, action: "other", purpose: "" }] }),
+        SLUG,
+      ),
+    ).toContain("a planned file has an action other than create or modify");
+    expect(
+      checkPlanText(
+        posted({ files: [{ path: `${dir}counter.tsx`, action: "create", purpose: "" }] }),
+        SLUG,
+      ),
+    ).toContain("the plan has no `page.tsx`");
+  });
+
+  it("refuses text whose file list can't be read", () => {
+    expect(checkPlanText("Title\n\nSummary", SLUG)).toContain(
+      "the plan's file list couldn't be read",
+    );
+    expect(checkPlanText("Title\n\nFiles\n* src/app/demos/request-7/page.tsx", SLUG)).toContain(
+      "the plan's file list couldn't be read",
+    );
+  });
+
+  it("isn't fooled by a title or summary that is just the word Files", () => {
+    expect(checkPlanText(posted({ title: "Files" }), SLUG)).toEqual([]);
+    expect(checkPlanText(posted({ summary: "Files" }), SLUG)).toEqual([]);
+  });
+
+  it("flags a duplicate file in a posted plan", () => {
+    const page = { path: `${dir}page.tsx`, action: "create" as const, purpose: "" };
+    expect(checkPlanText(posted({ files: [page, page] }), SLUG)).toContain(
+      "the plan lists the same file more than once",
+    );
+  });
+
+  it("agrees with checkScope on plans that were ready when posted", () => {
+    for (const ready of [
+      plan(),
+      plan({ steps: ["Use <Link> from next/link", "A helper function (pure)"] }),
+    ]) {
+      expect(checkScope(ready, SLUG).reasons).toEqual([]);
+      expect(checkPlanText(posted(ready), SLUG)).toEqual([]);
+    }
+  });
+});
+
+describe("text rules", () => {
+  it.each([
+    ["Open a ws://example.test socket", "external URL"],
+    ["Load //cdn.example.test/lib.js", "external URL"],
+    ["Set element.innerHTML", "code injection"],
+    ["Call insertAdjacentHTML", "code injection"],
+    ["Use document.write", "code injection"],
+    ["Build with Function(code)", "code injection"],
+    ["Embed an <iframe srcdoc>", "code injection"],
+    ["Send with postMessage", "network calls"],
+    ["Lazy load with import('x')", "network calls"],
+  ])("flags %j", (step, reason) => {
+    expect(checkScope(plan({ steps: [step] }), SLUG).reasons.join(" | ")).toContain(reason);
   });
 });
