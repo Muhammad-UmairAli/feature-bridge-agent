@@ -51,14 +51,15 @@ const MAX_ITEMS = 8;
 
 /**
  * One line of plain text, at most `max` code points. Characters a reader can't
- * see (zero-width, bidi overrides, Unicode tags, private use) are dropped, so
- * the approver sees everything a later reader of the plan will.
+ * see (zero-width, bidi overrides, Unicode tags, private use) and lone
+ * surrogates are dropped, so the approver sees everything a later reader of
+ * the plan will, and GitHub accepts the text.
  */
 export function clean(value: unknown, max = MAX_TEXT): string {
   if (typeof value !== "string") return "";
   const flat = value
     .normalize("NFC")
-    .replace(/[\p{Cf}\p{Co}\p{Cn}]/gu, "")
+    .replace(/[\p{Cf}\p{Cs}\p{Co}\p{Cn}]/gu, "")
     .replace(/[\p{Cc}\p{Zl}\p{Zp}\s]+/gu, " ")
     .trim();
   const chars = Array.from(flat);
@@ -87,7 +88,7 @@ function tryJson(text: string): unknown {
  * The JSON object in a reply, tolerating reasoning (`<think>…</think>`), a
  * fenced block, or prose around it.
  */
-function jsonObject(reply: string): unknown {
+export function jsonObject(reply: string): unknown {
   const text = reply.replace(/<think>[\s\S]*?<\/think>/g, "");
   const fenced = /```(?:json)?\s*\n([\s\S]*?)\n\s*```/.exec(text);
   const fromFence = fenced ? tryJson(fenced[1]) : null;
@@ -146,7 +147,7 @@ export function parsePlan(reply: string): Plan | null {
 }
 
 /** A backtick fence longer than any backtick run inside the text (at least 3). */
-function fenceFor(text: string): string {
+export function fenceFor(text: string): string {
   const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
   return "`".repeat(Math.max(3, longestRun + 1));
 }

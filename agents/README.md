@@ -17,6 +17,7 @@ parameter properties); `pnpm typecheck` enforces this.
 | `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built           |
 | `coder/`            | Coding agent: turns an approved plan into a demo, then publishes it as a pull request |
 | `scope-check/`      | CI check that agent pull requests only change their demo folder                       |
+| `reviewer/`         | Automated, advisory review of the coding agent's pull requests                        |
 
 ## Model configuration
 
@@ -185,3 +186,32 @@ Both key-holding jobs refuse re-runs. A withdrawn or superseded approval stops q
 anything else posts a fixed comment and applies `escalated-to-human`, and a crashed or
 cancelled job is handed over by a final plain-`gh` step. The gate refuses new approvals
 while `escalated-to-human` is on the request.
+
+## Automated review
+
+`reviewer/run.mts` runs in the "Review request" workflow for every commit pushed to a pull
+request the coding agent opened (`request-<number>` into `main`, by `AGENT_APP_LOGIN`,
+from this repository; other pull requests get no job). Like the write-scope check it runs
+on `pull_request_target` from the base branch's code and reads the head commit as git
+objects only; it holds the model key, so it installs nothing.
+
+It gives the model `AGENTS.md` (trusted), the plan the build was made from (the planning
+agent's last plan before its last build record on the request issue, unedited) and the
+demo's own files at the head (`demo.tsx`, helpers and tests; the page and loader are
+templates the write-scope check compares exactly), with the plan and files as delimited
+data. Folders holding anything the write-scope rules don't allow, or more than 64 KB of
+files, aren't sent. The model answers with a JSON verdict (`pass` or `findings`, a
+summary and findings), which is cleaned and posted as one comment with every generated
+word inside a text fence, under a hidden marker with the result and the commit. The comment
+also lists what the coding agent's own file checks (`coder/files.mts`) find at that commit,
+which the files can't steer; any problem there makes the result `findings`.
+
+The review is advisory. It approves nothing and changes nothing: findings wait for a
+maintainer, who can request changes. Each commit is reviewed once (an unedited review
+comment counts); a run that couldn't finish posts a short fixed comment, fails, and can be
+re-run.
+
+Known limit: the plan is found from the request issue's latest build record. If a request
+is approved again after its pull request was opened (a second build then stops because the
+branch exists), later commits on the first pull request are reviewed against the newer
+plan.

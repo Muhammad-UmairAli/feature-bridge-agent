@@ -47,6 +47,10 @@ jobs:
             out=$(env -i PATH="$PATH" node "agents/coder/$script.mts" 2>&1) || true
             grep -q '"event":"build.misconfigured"' <<<"$out"
           done
+      - name: Automated review loads without dependencies
+        run: |
+          out=$(env -i PATH="$PATH" node agents/reviewer/run.mts 2>&1) || true
+          grep -q '"event":"review.misconfigured"' <<<"$out"
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

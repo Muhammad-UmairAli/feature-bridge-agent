@@ -20,10 +20,10 @@ export interface GeneratedFile {
 export const FILE_END = "<<<END FILE>>>";
 export const CANNOT_BUILD = "<<<CANNOT BUILD>>>";
 const FILE_START = /^<<<FILE ([^\s<>]{1,200})>>>$/;
-const MAX_FILES = 12;
-const MAX_FILE_BYTES = 30_000;
+export const MAX_FILES = 12;
+export const MAX_FILE_BYTES = 30_000;
 /** Small enough to pass between jobs (gzip + base64 in an environment variable). */
-const MAX_TOTAL_BYTES = 64_000;
+export const MAX_TOTAL_BYTES = 64_000;
 const MAX_LINE = 300;
 
 export type Parsed =

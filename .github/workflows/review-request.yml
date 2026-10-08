@@ -1,0 +1,80 @@
+name: Review request
+
+# An automated, advisory review of each commit pushed to the coding agent's
+# own request pull requests (branches request-<number>): the model reads the
+# plan the demo was built from and the demo's files, and its findings are
+# posted with the coding agent's file checks as one comment per commit. It
+# approves nothing and changes nothing; findings wait for a maintainer, who can
+# request changes. See agents/reviewer.
+#
+# Runs on pull_request_target so the job and the reviewer come from the base
+# branch: a pull request can't change the code that reviews it. The head
+# commit is fetched as git objects only; nothing from it is checked out,
+# installed or run. Only the coding agent's pull requests get a job at all
+# (anyone else's would spend the model budget). The model key lives in the
+# "agents" environment, limited to the default branch.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions: {}
+
+# One review per pull request at a time. A running review isn't cancelled (its
+# model calls are already paid for); a queued run for a commit that has been
+# reviewed meanwhile does nothing.
+concurrency:
+  group: review-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  review:
+    name: Automated review
+    if: >-
+      vars.AGENT_APP_LOGIN != '' &&
+      github.event.pull_request.user.type == 'Bot' &&
+      github.event.pull_request.user.login == vars.AGENT_APP_LOGIN &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'request-')
+    runs-on: ubuntu-latest
+    environment: agents
+    timeout-minutes: 10
+    permissions:
+      contents: read # the reviewer, AGENTS.md and the head commit's objects
+      issues: read # the approved plan on the request issue
+      pull-requests: write # one review comment
+    steps:
+      # The base branch (pull_request_target's default), never the pull request.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is installed in a job that holds a key.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Exactly the commit this event is about; a newer push gets its own run.
+      - name: Fetch the head commit (as data)
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git fetch --no-tags --quiet --depth=1 origin "$HEAD_SHA"
+      - name: Review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          AGENT_APP_LOGIN: ${{ vars.AGENT_APP_LOGIN }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MAX_TOKENS_PER_REQUEST: ${{ vars.LLM_MAX_TOKENS_PER_REQUEST }}
+        run: node agents/reviewer/run.mts

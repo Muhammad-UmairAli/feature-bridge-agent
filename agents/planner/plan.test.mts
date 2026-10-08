@@ -72,6 +72,12 @@ describe("parsePlan", () => {
     // U+0085 is a control line break, so it becomes a space like other breaks.
     expect(clean(hidden)).toBe("abcde fg");
     expect(clean("tab\tand\nnewline\u2029end")).toBe("tab and newline end");
+    // Lone surrogates (from JSON escapes) aren't valid text; a pair is kept.
+    const lone = `a${String.fromCharCode(0xd800)}b${String.fromCharCode(0xdc00)}c`;
+    expect(clean(lone)).toBe("abc");
+    expect(clean(`x${String.fromCharCode(0xd83d, 0xde00)}y`)).toBe(
+      `x${String.fromCodePoint(0x1f600)}y`,
+    );
   });
 
   it("shortens by characters without splitting an emoji", () => {
