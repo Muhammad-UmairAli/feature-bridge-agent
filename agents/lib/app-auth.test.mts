@@ -167,9 +167,16 @@ describe("installationToken", () => {
     ],
     ["another repository", { repositories: [{ full_name: "octo/other" }] }],
     ["all repositories", { repository_selection: "all" }],
-  ])("refuses a token with %s", async (_name, token) => {
-    await expect(installationToken(config, wanted, github({}, token))).rejects.toBeInstanceOf(
+  ])("refuses and revokes a token with %s", async (_name, token) => {
+    const fetchMock = github({}, token);
+    await expect(installationToken(config, wanted, fetchMock)).rejects.toBeInstanceOf(
       AgentAppConfigError,
+    );
+    const revoke = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).endsWith("/installation/token") && init?.method === "DELETE",
+    );
+    expect((revoke?.[1]?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer fake-installation-token-for-tests",
     );
   });
 
