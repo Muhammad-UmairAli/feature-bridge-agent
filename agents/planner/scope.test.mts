@@ -17,6 +17,7 @@ const plan = (overrides: Partial<Plan> = {}): Plan => ({
   ],
   files: [
     { path: `${dir}page.tsx`, action: "create", purpose: "Route /demos/request-7" },
+    { path: `${dir}demo.tsx`, action: "create", purpose: "The demo" },
     { path: `${dir}counter.tsx`, action: "create", purpose: "" },
     { path: `${dir}counter.test.tsx`, action: "create", purpose: "" },
   ],
@@ -123,9 +124,9 @@ describe("checkScope", () => {
 
   it.each([
     [
-      "a missing page",
+      "a missing demo",
       { files: [{ path: `${dir}counter.tsx`, action: "create" as const, purpose: "" }] },
-      "no `page.tsx`",
+      "no `demo.tsx`",
     ],
     [
       "a duplicate file",
@@ -254,7 +255,7 @@ describe("checkPlanText", () => {
         posted({ files: [{ path: `${dir}counter.tsx`, action: "create", purpose: "" }] }),
         SLUG,
       ),
-    ).toContain("the plan has no `page.tsx`");
+    ).toContain("the plan has no `demo.tsx`");
   });
 
   it("refuses text whose file list can't be read", () => {
@@ -300,6 +301,10 @@ describe("text rules", () => {
     ["Embed an <iframe srcdoc>", "code injection"],
     ["Send with postMessage", "network calls"],
     ["Lazy load with import('x')", "network calls"],
+    ["Read globalThis.secret", "hidden or indirect code"],
+    ["Decode it with atob first", "hidden or indirect code"],
+    ["Use vi.importActual in the test", "hidden or indirect code"],
+    ["Copy <<<FILE blocks verbatim", "hidden or indirect code"],
   ])("flags %j", (step, reason) => {
     expect(checkScope(plan({ steps: [step] }), SLUG).reasons.join(" | ")).toContain(reason);
   });

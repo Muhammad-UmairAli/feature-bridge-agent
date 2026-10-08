@@ -120,6 +120,7 @@ To take a screenshot down immediately:
 - When forking, include all branches (GitHub copies only `main` by default) and branch from `develop`. Open pull requests with `develop` as the base branch (GitHub defaults new PRs to `main`, so change the base). `main` only receives releases. Both branches are protected.
 - Set up once per clone: `corepack enable pnpm && pnpm install`, then `pre-commit install`. The hooks check formatting (with the project's Prettier) and workflow files, and scan for secrets.
 - CI runs lint, typecheck, tests, build, the pre-commit hooks, a secret scan and a content policy check on pull requests into `develop` and `main`.
+- Agent-written demos (`request-*` branches) are untrusted code: review them before running them locally, or run them in a sandbox. CI runs their tests without secrets.
 - Commits in this public repo show the author's name and email. Use a personal address or your GitHub noreply address (`<id>+<username>@users.noreply.github.com`), set it with `git config user.email`.
 
 ## License

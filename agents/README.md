@@ -15,6 +15,7 @@ parameter properties); `pnpm typecheck` enforces this.
 | `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token            |
 | `planner/`          | Planning agent: posts an implementation plan on new portal requests          |
 | `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built  |
+| `coder/`            | Coding agent: turns an approved plan into a demo with tests                  |
 | `scope-check/`      | CI check that agent pull requests only change their demo folder              |
 
 ## Model configuration
@@ -134,3 +135,23 @@ network calls, other windows, server actions, injected HTML, `eval`, dynamic imp
 redirects, allow imports only from `@/components/ui/*`, `@/lib/utils` and the demo's own
 files, and can't be switched off inline. They help reviewers; they aren't a security
 boundary on their own. Make "Write scope" and the CI checks required on `main`.
+
+## Coding agent
+
+`coder/generate.mts` turns an approved plan into the files of a new demo. Demo code never
+runs on the server or during the build: the workflow writes `page.tsx` (title and heading
+only) and `demo-loader.tsx` (mounts `demo.tsx` in the browser with `next/dynamic` and
+`ssr: false`) from fixed templates (`coder/template.mts`), and the write-scope check in CI
+compares both with the templates exactly. The model writes `demo.tsx`, helpers and tests.
+
+The model gets `AGENTS.md`, the shared UI sources and the approved plan as delimited data
+(the request text itself isn't sent; plans containing code or markers go to a human), and
+answers with each file between `<<<FILE path>>>` and `<<<END FILE>>>` lines, or
+`<<<CANNOT BUILD>>>`. Every file is then checked before it is committed: allowed paths and
+sizes, a `"use client"` default export in `demo.tsx`, at least one test, an import allowlist,
+literal browser storage keys prefixed `demo:<slug>:`, plain text without hidden characters,
+escapes or very long lines, only simple `vi` helpers in tests, and the AGENTS.md "not
+allowed" list; then the repository's own ESLint rules run on the files (parsing, never
+running them). A failing answer gets one retry with the problems listed; after that, the
+build stops for a human. These checks are tripwires; isolation, CI and human review are the
+real controls.

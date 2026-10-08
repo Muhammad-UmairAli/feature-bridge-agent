@@ -16,6 +16,13 @@ import {
   parseRawLog,
   shown,
 } from "./check.mts";
+import {
+  DEMO_FILE,
+  LOADER_FILE,
+  PAGE_FILE,
+  loaderTemplate,
+  templateTitle,
+} from "../coder/template.mts";
 
 export interface Git {
   /** Run git and return stdout as text. */
@@ -89,14 +96,32 @@ export async function checkPullRequest(
   ]);
   if (existing.trim()) problems.push(`src/app/demos/${slug}/ already exists on the base branch`);
 
-  // The pull request must leave a demo behind: its page at the head.
-  const page = await git.text([
-    "ls-tree",
-    "--name-only",
-    headSha,
-    `src/app/demos/${slug}/page.tsx`,
-  ]);
-  if (!page.trim()) problems.push(`src/app/demos/${slug}/page.tsx is missing at the head`);
+  // At the head, the page and loader must be exactly the workflow's templates
+  // (so demo code only runs in the browser) and the demo itself must exist.
+  const headFile = async (name: string) => {
+    const listed = await git.text([
+      "ls-tree",
+      "--name-only",
+      headSha,
+      `src/app/demos/${slug}/${name}`,
+    ]);
+    return listed.trim()
+      ? git.text(["cat-file", "blob", `${headSha}:src/app/demos/${slug}/${name}`])
+      : null;
+  };
+  const page = await headFile(PAGE_FILE);
+  if (page === null) problems.push(`src/app/demos/${slug}/${PAGE_FILE} is missing at the head`);
+  else if (templateTitle(page) === null) {
+    problems.push(`src/app/demos/${slug}/${PAGE_FILE} doesn't match the workflow's page template`);
+  }
+  if ((await headFile(LOADER_FILE)) !== loaderTemplate()) {
+    problems.push(
+      `src/app/demos/${slug}/${LOADER_FILE} doesn't match the workflow's loader template`,
+    );
+  }
+  if ((await headFile(DEMO_FILE)) === null) {
+    problems.push(`src/app/demos/${slug}/${DEMO_FILE} is missing at the head`);
+  }
 
   const changes = parseRawLog(
     await git.text([

@@ -24,7 +24,10 @@ const planReply = JSON.stringify({
   title: "Counter demo",
   summary: "A counter.",
   steps: ["Create the page"],
-  files: [{ path: "src/app/demos/request-7/page.tsx", action: "create", purpose: "Route" }],
+  files: [
+    { path: "src/app/demos/request-7/page.tsx", action: "create", purpose: "Route" },
+    { path: "src/app/demos/request-7/demo.tsx", action: "create", purpose: "The demo" },
+  ],
   tests: ["Renders"],
   concerns: [],
   instructionsInRequest: false,
@@ -273,7 +276,7 @@ describe("planRequest", () => {
     const outOfArea = JSON.stringify({
       ...JSON.parse(planReply),
       files: [
-        { path: "src/app/demos/request-7/page.tsx", action: "create" },
+        { path: "src/app/demos/request-7/demo.tsx", action: "create" },
         { path: "package.json", action: "modify" },
       ],
       needs: { newDependency: true },

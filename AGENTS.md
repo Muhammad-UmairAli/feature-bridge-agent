@@ -24,33 +24,35 @@ Guidance for automated contributors (the coding agent and AI coding tools) and f
 Each approved request gets exactly one folder, `src/app/demos/<slug>/`.
 
 - **The slug is assigned by the workflow**, never taken from request text. It matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is at most 40 characters.
-- **The folder must not already exist**, unless the approved plan explicitly updates that existing demo.
+- **The folder must not already exist.** Each request builds a new demo; changing a live demo needs a maintainer.
 - **Write only inside that folder.** Everything outside it is off-limits, including other demos. CI checks every file in every commit of a `request-<number>` pull request, and lint rules flag much of the "not allowed" list below (inline `eslint-disable` comments are refused).
 
-### Allowed files (flat, no subfolders)
+### Files (flat, no subfolders)
 
-| File                                | Purpose                                         |
-| ----------------------------------- | ----------------------------------------------- |
-| `page.tsx`                          | Required. The route `/demos/<slug>`             |
-| `<name>.tsx`, `<name>.ts`           | Components and logic for this demo (kebab-case) |
-| `<name>.test.tsx`, `<name>.test.ts` | Tests, beside the code they test                |
+| File                                | Who writes it | Purpose                                                              |
+| ----------------------------------- | ------------- | -------------------------------------------------------------------- |
+| `page.tsx`                          | The workflow  | The route `/demos/<slug>`: title, one `<h1>`, and the loader         |
+| `demo-loader.tsx`                   | The workflow  | Mounts `demo.tsx` in the browser only                                |
+| `demo.tsx`                          | You           | Required. The demo: a `"use client"` component with a default export |
+| `<name>.tsx`, `<name>.ts`           | You           | Helpers for this demo (kebab-case)                                   |
+| `<name>.test.tsx`, `<name>.test.ts` | You           | Tests, beside the code they test                                     |
 
-Nothing else: no `.css`, `.md`, `.json`, `.d.ts`, images or other assets, and no Next.js special file names other than `page.tsx` (for example `layout`, `route`, `loading`, `error`, `not-found`, `template`, `default`, `icon`, `opengraph-image`, `sitemap`, `robots`, `manifest`, including numbered variants such as `icon1`).
+The workflow writes `page.tsx` and `demo-loader.tsx` from fixed templates, and CI checks they match exactly, so demo code never runs on the server. Nothing else is allowed: no `.css`, `.md`, `.json`, `.d.ts`, images or other assets, and no Next.js special file names (for example `layout`, `route`, `loading`, `error`, `not-found`, `template`, `default`, `icon`, `opengraph-image`, `sitemap`, `robots`, `manifest`, including numbered variants such as `icon1`).
 
-### Page rules (Next.js 16)
+### Demo rules
 
-- `page.tsx` is a synchronous server component that exports `metadata = { title: "…" }` (the layout adds the site name) and renders one `<h1>`.
-- Put interactivity in a separate `"use client"` component file in the same folder. Client files can't export `metadata`.
-- Don't read `params` or `searchParams` (they're Promises in Next.js 16). Keep any data static in the folder.
+- `demo.tsx` starts with `"use client"` and default-exports the demo component. It doesn't render an `<h1>` (the page has it) and doesn't export `metadata` or other page settings.
+- Keep any data static in the folder. Use only `react`, `next/link`, `useRouter`/`usePathname`/`useSearchParams` from `next/navigation`, `@/components/ui/*`, `@/lib/utils` and your own files; tests may also use `vitest` (`vi.fn`, `vi.spyOn` and fake timers) and `@testing-library/react`.
+- Code is plain ASCII with lines under 300 characters, no escaped or encoded strings, and no computed access to globals (`window[...]`, `globalThis`, `Reflect`).
 
 ### Not allowed in demo code
 
 - Environment variables (`process.env`), Node APIs (`node:*`, `fs`, `child_process`), server actions (`"use server"`), `next/headers`, `cookies()`
 - Network calls of any kind (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `navigator.sendBeacon`) and redirects
-- External content: `<script>`, `next/script`, `<iframe>`, and images, fonts or links pointing outside the site
+- External content: `<script>`, `next/script`, `<iframe>`, `<object>`, `<embed>`, `createElement`, and any URL to another site
 - `dangerouslySetInnerHTML`, `eval`, `new Function`
 - New dependencies, `shadcn add`, or icon libraries (none is installed)
-- Browser storage keys not prefixed with `demo:<slug>:`
+- Browser storage other than `localStorage`/`sessionStorage` `getItem`, `setItem` and `removeItem` with literal keys prefixed `demo:<slug>:`
 
 If a request can't be built under these rules, say so in the plan instead of working around them. A maintainer updates the demos index (`src/app/demos/page.tsx`).
 

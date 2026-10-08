@@ -72,6 +72,10 @@ const TEXT_RULES: [RegExp, string][] = [
     /\bdangerouslySetInnerHTML\b|\b(?:inner|outer)HTML\b|\binsertAdjacentHTML\b|\bdocument\.write\b|\beval\s*\(|\bsrcdoc\b/i,
     "the plan mentions code injection or embedded content",
   ],
+  [
+    /\bglobalThis\b|\bReflect\b|\.constructor\b|\batob\b|\bfromCharCode\b|\bimportActual\b|\bimportMock\b|<<<FILE/,
+    "the plan mentions hidden or indirect code",
+  ],
   // Case-sensitive, so "a helper function (pure)" and Next's <Link> don't match.
   [
     /\bnew Function\b|\bFunction\s*\(|<(?:script|iframe|object|embed|link)\b/,
@@ -127,7 +131,7 @@ export function checkScope(plan: Plan, slug: string): ScopeCheck {
   }
   const paths = plan.files.map((file) => file.path);
   if (new Set(paths).size !== paths.length) add("the plan lists the same file more than once");
-  if (!paths.includes(`src/app/demos/${slug}/page.tsx`)) add("the plan has no `page.tsx`");
+  if (!paths.includes(`src/app/demos/${slug}/demo.tsx`)) add("the plan has no `demo.tsx`");
   if (plan.files.some((file) => file.action === "other")) {
     add("a planned file has an action other than create or modify");
   }
@@ -205,8 +209,8 @@ export function checkPlanText(text: string, slug: string): string[] {
     );
   }
   if (new Set(paths).size !== paths.length) add("the plan lists the same file more than once");
-  if (paths.length > 0 && !paths.includes(`src/app/demos/${slug}/page.tsx`)) {
-    add("the plan has no `page.tsx`");
+  if (paths.length > 0 && !paths.includes(`src/app/demos/${slug}/demo.tsx`)) {
+    add("the plan has no `demo.tsx`");
   }
   scanText(text, slug, add);
   return reasons;
