@@ -89,6 +89,10 @@ export type RefusalReason = keyof typeof REFUSALS;
 export interface GateDeps {
   github: GitHubClient;
   log: Log;
+  /** Check only: a refusal changes nothing on the issue (used when re-verifying). */
+  checkOnly?: boolean;
+  /** True once this run has recorded the build itself (the publishing job re-verifies then). */
+  allowBuilt?: boolean;
 }
 
 const time = (iso: string) => Date.parse(iso);
@@ -105,7 +109,9 @@ export async function checkApproval(settings: GateSettings, deps: GateDeps): Pro
       issue: number,
       reason,
       ...(rules.length ? { rules: rules.join("; ") } : {}),
+      ...(deps.checkOnly ? { checkOnly: true } : {}),
     });
+    if (deps.checkOnly) return { kind: "refused", reason, cleanedUp: false };
     let removed = true;
     try {
       await github.removeLabel(number, LABELS.approved);
@@ -151,7 +157,7 @@ export async function checkApproval(settings: GateSettings, deps: GateDeps): Pro
 
   const comments = await github.listComments(number);
   const marker = buildMarker(approval.id);
-  if (comments.some((c) => byAgent(c) && c.body.startsWith(marker))) {
+  if (!deps.allowBuilt && comments.some((c) => byAgent(c) && c.body.startsWith(marker))) {
     return skip("already_built");
   }
 
@@ -165,7 +171,8 @@ export async function checkApproval(settings: GateSettings, deps: GateDeps): Pro
     !has(LABELS.planReady) ||
     has(LABELS.changesRequested) ||
     has(LABELS.planning) ||
-    has(LABELS.needsHumanTriage)
+    has(LABELS.needsHumanTriage) ||
+    has(LABELS.escalatedToHuman)
   ) {
     return refuse("not_ready");
   }
@@ -231,3 +238,55 @@ const byAgent = (comment: Comment) =>
   comment.user?.type === "Bot" &&
   comment.user.login === AGENT_LOGIN &&
   comment.user.id === AGENT_ID;
+
+export interface ExpectedApproval {
+  approvalEventId: number;
+  planCommentId: number;
+  planSha256: string;
+}
+
+export type Verification =
+  | { ok: true; approval: Approval }
+  | {
+      ok: false;
+      /**
+       * withdrawn: the label is gone; superseded: a newer approval or plan
+       * replaced this one (its own run takes over); already_built: recorded
+       * as built; refused: the approval no longer passes the gate.
+       */
+      reason: "withdrawn" | "superseded" | "already_built" | "refused";
+    };
+
+/**
+ * Re-check, without changing anything, that the approval the gate accepted is
+ * still the current, valid one (the gate's outputs alone could be replayed by
+ * a re-run hours later), and say why not when it isn't.
+ */
+export async function verifyApproval(
+  settings: GateSettings,
+  deps: GateDeps,
+  expected: ExpectedApproval,
+): Promise<Verification> {
+  const outcome = await checkApproval(settings, { ...deps, checkOnly: true });
+  const log = (reason: string) =>
+    deps.log("info", "gate.not_current", { issue: settings.issueNumber, reason });
+  if (outcome.kind === "skipped") {
+    const reason = outcome.reason === "already_built" ? "already_built" : "withdrawn";
+    log(reason);
+    return { ok: false, reason };
+  }
+  if (outcome.kind === "refused") {
+    log("refused");
+    return { ok: false, reason: "refused" };
+  }
+  const { approval } = outcome;
+  const same =
+    approval.approvalEventId === expected.approvalEventId &&
+    approval.planCommentId === expected.planCommentId &&
+    approval.planSha256 === expected.planSha256;
+  if (!same) {
+    log("superseded");
+    return { ok: false, reason: "superseded" };
+  }
+  return { ok: true, approval };
+}

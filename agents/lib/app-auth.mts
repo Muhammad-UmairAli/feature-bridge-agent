@@ -212,6 +212,8 @@ export async function installationToken(
     repositories.length === 1 &&
     String(repositories[0]?.full_name).toLowerCase() === config.repo.toLowerCase();
   if (!onlyThisRepo || !sameEntries(granted.permissions, { ...permissions, metadata: "read" })) {
+    // The token we least want around: revoke it at once.
+    await revokeToken(token, fetchImpl);
     throw new AgentAppConfigError(
       "The agent App token isn't limited to this repository and the requested permissions",
     );

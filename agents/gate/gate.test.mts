@@ -22,7 +22,7 @@ import {
 } from "../planner/plan.mts";
 import { AGENT_ID, AGENT_LOGIN } from "../planner/planner.mts";
 import { requestHash } from "../planner/request.mts";
-import { REFUSED_MARKER, buildMarker, checkApproval } from "./gate.mts";
+import { REFUSED_MARKER, buildMarker, checkApproval, verifyApproval } from "./gate.mts";
 
 const BOT = "request-portal[bot]";
 const DESCRIPTION = "Add a counter.";
@@ -224,6 +224,11 @@ describe("checkApproval", () => {
       "not_ready",
     ],
     [
+      "a build handed to a maintainer",
+      { labels: ["portal-request", "plan-ready", "escalated-to-human", "approved-by-human"] },
+      "not_ready",
+    ],
+    [
       "a request handed to a maintainer",
       { labels: ["portal-request", "plan-ready", "needs-human-triage", "approved-by-human"] },
       "not_ready",
@@ -369,5 +374,75 @@ describe("checkApproval", () => {
     const comments = setup();
     comments.github.listComments.mockRejectedValue(new Error("too many comments to read safely"));
     await expect(checkApproval(settings, comments.deps)).rejects.toThrow("too many comments");
+  });
+});
+
+describe("verifyApproval", () => {
+  // One label history for every setup here, so event ids line up.
+  const events = history();
+  const expectedFor = async () => {
+    const outcome = await checkApproval(settings, setup({ events }).deps);
+    if (outcome.kind !== "approved") throw new Error("expected an approval");
+    const { approvalEventId, planCommentId, planSha256 } = outcome.approval;
+    return { approvalEventId, planCommentId, planSha256 };
+  };
+
+  it("returns the approval when it is still the expected one", async () => {
+    const expected = await expectedFor();
+    const t = setup({ events });
+    const verified = await verifyApproval(settings, t.deps, expected);
+    expect(verified.ok && verified.approval.planCommentId).toBe(100);
+  });
+
+  it("checks only: a refusal changes nothing on the issue", async () => {
+    const expected = await expectedFor();
+    const t = setup({ events, role: "read" });
+    expect(await verifyApproval(settings, t.deps, expected)).toEqual({
+      ok: false,
+      reason: "refused",
+    });
+    expect(t.posted).toEqual([]);
+    expect(t.current.has("approved-by-human")).toBe(true);
+  });
+
+  it("refuses an approval that differs from what the gate accepted", async () => {
+    const expected = await expectedFor();
+    for (const changed of [
+      { ...expected, approvalEventId: expected.approvalEventId + 1 },
+      { ...expected, planCommentId: 999 },
+      { ...expected, planSha256: "0".repeat(64) },
+    ]) {
+      expect(await verifyApproval(settings, setup({ events }).deps, changed)).toEqual({
+        ok: false,
+        reason: "superseded",
+      });
+    }
+  });
+
+  it("reports a withdrawn approval", async () => {
+    const expected = await expectedFor();
+    const t = setup({ events, labels: ["portal-request", "plan-ready"] });
+    expect(await verifyApproval(settings, t.deps, expected)).toEqual({
+      ok: false,
+      reason: "withdrawn",
+    });
+  });
+
+  it("accepts a recorded build only when asked to", async () => {
+    const expected = await expectedFor();
+    const built: Comment = {
+      ...planComment(`${buildMarker(expected.approvalEventId)}\n### Building`),
+      id: 300,
+      createdAt: "2026-10-08T10:01:00Z",
+      updatedAt: "2026-10-08T10:01:00Z",
+    };
+    const t = setup({ events, comments: [planComment(), built] });
+    expect(await verifyApproval(settings, t.deps, expected)).toEqual({
+      ok: false,
+      reason: "already_built",
+    });
+    expect((await verifyApproval(settings, { ...t.deps, allowBuilt: true }, expected)).ok).toBe(
+      true,
+    );
   });
 });

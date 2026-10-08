@@ -39,6 +39,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      # Before installing anything: the build jobs that hold keys install
+      # nothing, so their scripts must load from Node alone.
+      - name: Build scripts load without dependencies
+        run: |
+          for script in run-generate run-publish; do
+            out=$(env -i PATH="$PATH" node "agents/coder/$script.mts" 2>&1) || true
+            grep -q '"event":"build.misconfigured"' <<<"$out"
+          done
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

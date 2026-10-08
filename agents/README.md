@@ -8,15 +8,15 @@ use relative imports with explicit `.mts` extensions and can't import from `src/
 `@/*`. Keep them free of syntax that needs compiling (no enums, namespaces or
 parameter properties); `pnpm typecheck` enforces this.
 
-| Path                | What it does                                                                 |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `lib/llm.mts`       | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run |
-| `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents             |
-| `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token            |
-| `planner/`          | Planning agent: posts an implementation plan on new portal requests          |
-| `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built  |
-| `coder/`            | Coding agent: turns an approved plan into a demo with tests                  |
-| `scope-check/`      | CI check that agent pull requests only change their demo folder              |
+| Path                | What it does                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| `lib/llm.mts`       | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run          |
+| `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents                      |
+| `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token                     |
+| `planner/`          | Planning agent: posts an implementation plan on new portal requests                   |
+| `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built           |
+| `coder/`            | Coding agent: turns an approved plan into a demo, then publishes it as a pull request |
+| `scope-check/`      | CI check that agent pull requests only change their demo folder                       |
 
 ## Model configuration
 
@@ -166,3 +166,22 @@ model's files and both templates), creates branch `request-<number>` from `main`
 commit through the Git Data API, and opens a pull request into `main` with fixed text. It
 never force-updates or deletes anything; lost responses are recovered by looking again,
 and anything else is left for a maintainer.
+
+### The build jobs
+
+`coder/run-generate.mts`, `coder/run-check.mts` and `coder/run-publish.mts` run as jobs of
+the "Build request" workflow after the gate accepts an approval:
+
+- Generate (model key only, Node's standard library only) re-verifies the approval without
+  side effects, posts the build record (`gate.buildMarker`) before any model call, generates
+  the demo, and passes the files on as a gzip + base64 bundle tied to the approval and plan,
+  with its SHA-256.
+- Check (no secrets, read-only token) lints the files with the repository's ESLint rules;
+  ESLint's plugins never run next to a key.
+- Publish (agent App key only, nothing installed) checks the bundle and the approval again,
+  publishes, comments with the pull request number, and revokes its token.
+
+Both key-holding jobs refuse re-runs. A withdrawn or superseded approval stops quietly;
+anything else posts a fixed comment and applies `escalated-to-human`, and a crashed or
+cancelled job is handed over by a final plain-`gh` step. The gate refuses new approvals
+while `escalated-to-human` is on the request.

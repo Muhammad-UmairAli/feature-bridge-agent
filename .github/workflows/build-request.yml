@@ -7,8 +7,18 @@ name: Build request
 # made from the current request text and still within the demo-area rules.
 # A refused approval loses its label and gets a fixed explanation.
 #
+# An accepted approval is built in jobs that never share secrets: generate
+# (model key, "agents" environment, Node's standard library only), check (no
+# secrets: the repository's ESLint rules, whose plugins must never run next to
+# a key) and publish (coding agent App key, "agent-app" environment). Each
+# key-holding job re-checks the approval itself and refuses re-runs (they would
+# replay old code and old bundles): to retry, apply approved-by-human again.
+# Generated code is never run here; CI runs its tests on the pull request
+# without secrets. The bundle travels through job outputs, so the generated
+# files appear in the run logs.
+#
 # Off until the repository variable PORTAL_BOT_LOGIN is set (forks do nothing).
-# The gate holds no model key.
+# The gate holds no secrets.
 on:
   issues:
     types: [labeled]
@@ -79,5 +89,146 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label approved-by-human || rc=$?
           body=$(printf '%s\n### Approval not checked\n\nThe approval check failed, was cancelled or timed out, so the %s label was removed. Apply it again to retry.' \
             '<!-- feature-bridge-agent:approval-refused -->' 'approved-by-human')
+          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$body" || rc=$?
+          exit "$rc"
+
+  generate:
+    name: Generate demo
+    needs: gate
+    if: >-
+      needs.gate.result == 'success' && needs.gate.outputs.approved == 'true' &&
+      github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    environment: agents
+    timeout-minutes: 30
+    permissions:
+      contents: read # the agent scripts, AGENTS.md and the shared UI
+      issues: write # record the build; hand over on failure
+    outputs:
+      built: ${{ steps.generate.outputs.built }}
+      bundle: ${{ steps.generate.outputs.bundle }}
+      bundle_sha256: ${{ steps.generate.outputs.bundle_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is installed in a job that holds a key.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Generate
+        id: generate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          APPROVER_ALLOWLIST: ${{ vars.APPROVER_ALLOWLIST }}
+          APPROVAL_EVENT_ID: ${{ needs.gate.outputs.approval_event_id }}
+          PLAN_COMMENT_ID: ${{ needs.gate.outputs.plan_comment_id }}
+          PLAN_SHA256: ${{ needs.gate.outputs.plan_sha256 }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MAX_TOKENS_PER_REQUEST: ${{ vars.LLM_MAX_TOKENS_PER_REQUEST }}
+        run: node agents/coder/run-generate.mts
+
+  check:
+    name: Check demo
+    needs: generate
+    if: needs.generate.result == 'success' && needs.generate.outputs.built == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      # The default branch's lockfile; no install scripts.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Lint the generated files
+        env:
+          BUNDLE: ${{ needs.generate.outputs.bundle }}
+          BUNDLE_SHA256: ${{ needs.generate.outputs.bundle_sha256 }}
+        run: node agents/coder/run-check.mts
+
+  publish:
+    name: Open pull request
+    needs: [gate, generate, check]
+    if: needs.check.result == 'success' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    environment: agent-app
+    timeout-minutes: 10
+    permissions:
+      contents: read # the agent scripts
+      issues: write # report the pull request; hand over on failure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          APPROVER_ALLOWLIST: ${{ vars.APPROVER_ALLOWLIST }}
+          APPROVAL_EVENT_ID: ${{ needs.gate.outputs.approval_event_id }}
+          PLAN_COMMENT_ID: ${{ needs.gate.outputs.plan_comment_id }}
+          PLAN_SHA256: ${{ needs.gate.outputs.plan_sha256 }}
+          BUNDLE: ${{ needs.generate.outputs.bundle }}
+          BUNDLE_SHA256: ${{ needs.generate.outputs.bundle_sha256 }}
+          AGENT_APP_ID: ${{ vars.AGENT_APP_ID }}
+          AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+        run: node agents/coder/run-publish.mts
+
+  # A build that crashed, timed out or was cancelled would leave the request
+  # "building" forever. Plain gh; does nothing if the request was already
+  # handed over or its pull request exists.
+  hand-over:
+    name: Hand over a stopped build
+    needs: [gate, generate, check, publish]
+    if: >-
+      always() && needs.gate.outputs.approved == 'true' && github.run_attempt == '1' &&
+      (contains(fromJSON('["failure", "cancelled"]'), needs.generate.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.check.result) ||
+        contains(fromJSON('["failure", "cancelled"]'), needs.publish.result))
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Hand over to a maintainer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          labels=$(gh issue view "$ISSUE_NUMBER" --repo "$repo" --json labels \
+            --jq '[.labels[].name] | join(",")') || labels=""
+          if [[ ",$labels," == *,escalated-to-human,* ]]; then
+            echo "Already handed over."
+            exit 0
+          fi
+          # Only this repository's own branch counts (forks can use the name too).
+          pulls=$(gh api "repos/$repo/pulls?state=all&head=${GITHUB_REPOSITORY_OWNER}:request-${ISSUE_NUMBER}&per_page=1" \
+            --jq 'length') || pulls=0
+          if [[ "$pulls" != "0" ]]; then
+            echo "The pull request exists."
+            exit 0
+          fi
+          rc=0
+          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --add-label escalated-to-human || rc=$?
+          body=$(printf '%s\n### Build stopped\n\nThe build failed (including a lint failure in the generated files), was cancelled or timed out. A maintainer will take it from here.' \
+            '<!-- feature-bridge-agent:build-stopped -->')
           gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$body" || rc=$?
           exit "$rc"

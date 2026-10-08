@@ -17,6 +17,7 @@ export const LABELS = {
   changesRequested: "changes-requested",
   approved: "approved-by-human",
   needsHumanTriage: "needs-human-triage",
+  escalatedToHuman: "escalated-to-human",
 } as const;
 
 /** The portal's limit; anything longer was edited after submission. */
