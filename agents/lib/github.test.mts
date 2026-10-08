@@ -191,4 +191,108 @@ describe("createGitHubClient", () => {
     const { github: empty } = client(Response.json([]));
     expect(await empty.latestLabelEvent(7, "changes-requested")).toBeNull();
   });
+
+  it("reads a pull request's head, base and author", async () => {
+    const { fetch, github } = client(
+      Response.json({
+        number: 30,
+        state: "open",
+        user: { login: "coder[bot]", id: 5, type: "Bot" },
+        head: { ref: "request-7", sha: "c".repeat(40), repo: { full_name: "octo/requests" } },
+        base: { ref: "main" },
+        created_at: "2026-10-08T09:00:00Z",
+      }),
+      Response.json({ number: 31, head: { repo: null } }),
+    );
+    expect(await github.getPull(30)).toEqual({
+      number: 30,
+      state: "open",
+      user: { login: "coder[bot]", id: 5, type: "Bot" },
+      headRef: "request-7",
+      headSha: "c".repeat(40),
+      headRepo: "octo/requests",
+      baseRef: "main",
+    });
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      "https://api.github.com/repos/octo/requests/pulls/30",
+    );
+    expect((await github.getPull(31)).headRepo).toBe("");
+  });
+
+  it("lists reviews and inline review comments", async () => {
+    const user = { login: "lead", id: 7, type: "User" };
+    const { fetch, github } = client(
+      Response.json([
+        { id: 1, user, state: "CHANGES_REQUESTED", body: "Fix it", submitted_at: "t1" },
+        { body: "no id" },
+      ]),
+      Response.json([
+        {
+          id: 2,
+          user,
+          body: "Off by one",
+          path: "src/a.ts",
+          line: 3,
+          created_at: "t2",
+          updated_at: "t3",
+        },
+        { id: 3, user: null, body: "Outdated", path: "src/a.ts", line: null },
+      ]),
+    );
+    expect(await github.listReviews(30)).toEqual([
+      { id: 1, user, body: "Fix it", submittedAt: "t1" },
+    ]);
+    expect(await github.listReviewComments(30)).toEqual([
+      {
+        id: 2,
+        user,
+        body: "Off by one",
+        path: "src/a.ts",
+        line: 3,
+        createdAt: "t2",
+        updatedAt: "t3",
+      },
+      {
+        id: 3,
+        user: null,
+        body: "Outdated",
+        path: "src/a.ts",
+        line: null,
+        createdAt: "",
+        updatedAt: "",
+      },
+    ]);
+    expect(String(fetch.mock.calls[0][0])).toContain("/pulls/30/reviews?per_page=100&page=1");
+    expect(String(fetch.mock.calls[1][0])).toContain("/pulls/30/comments?per_page=100&page=1");
+  });
+
+  it("lists a workflow's latest pull request runs on a branch", async () => {
+    const { fetch, github } = client(
+      Response.json({
+        workflow_runs: [
+          {
+            id: 9,
+            status: "completed",
+            conclusion: "failure",
+            head_sha: "a",
+            head_repository: { full_name: "octo/requests" },
+          },
+          { id: 8, status: "in_progress", conclusion: null, head_sha: "b" },
+          { status: "completed" },
+        ],
+      }),
+    );
+    expect(await github.latestWorkflowRuns(123, "request-7")).toEqual([
+      {
+        id: 9,
+        status: "completed",
+        conclusion: "failure",
+        headRepo: "octo/requests",
+      },
+      { id: 8, status: "in_progress", conclusion: "", headRepo: "" },
+    ]);
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      "https://api.github.com/repos/octo/requests/actions/workflows/123/runs?branch=request-7&event=pull_request&per_page=20",
+    );
+  });
 });

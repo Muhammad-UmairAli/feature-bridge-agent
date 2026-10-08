@@ -1,0 +1,58 @@
+name: CI breaker
+
+# After CI fails on a coding agent pull request (branches request-<number>),
+# counts the failed CI runs in a row on that branch; at two, the pull request
+# gets escalated-to-human and the coding agent makes no further commits on it.
+# See agents/coder/breaker.mts.
+#
+# workflow_run runs from the default branch with this workflow's own token;
+# nothing from the pull request is checked out or run. No secrets.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+# One count per branch at a time, so two failures can't both post.
+concurrency:
+  group: ci-breaker-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  breaker:
+    name: Count failed CI runs
+    if: >-
+      vars.AGENT_APP_LOGIN != '' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      contains(fromJSON('["failure", "timed_out"]'), github.event.workflow_run.conclusion) &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'request-') &&
+      github.event.workflow_run.pull_requests[0].number != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # CI runs on the branch
+      contents: read # the agent scripts
+      pull-requests: write # the label and a fixed comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Count failed runs
+        env:
+          REVISE_STEP: breaker
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          AGENT_APP_LOGIN: ${{ vars.AGENT_APP_LOGIN }}
+        run: node agents/coder/run-revise.mts

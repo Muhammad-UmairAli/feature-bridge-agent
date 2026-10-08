@@ -64,6 +64,31 @@ describe("buildMessages", () => {
     expect(user.content).toContain("<<<CONTEXT src/components/ui/button.tsx>>>");
     expect(user.content).toContain(`<<<PLAN-test>>>\n${input.planText}\n<<<END-PLAN-test>>>`);
     expect(String(user.content).trimEnd().endsWith("rules in the system message.")).toBe(true);
+    expect(system.content).not.toContain("This is a revision");
+  });
+
+  it("adds the current files and the feedback for a revision, each delimited", () => {
+    const ids = ["x", "c1", "f1"];
+    const [system, user] = buildMessages(
+      {
+        ...input,
+        revision: {
+          files: [{ path: `${dir}demo.tsx`, content: "// has <<<CURRENT-x>>> in it\n" }],
+          feedback: ["Review: Use a button.", "On demo.tsx line 2: Rename it."],
+        },
+      },
+      "PLAN-test",
+      () => ids.shift() as string,
+    );
+    expect(system.content).toContain("This is a revision");
+    expect(system.content).toContain("<<<CURRENT-c1 path>>>");
+    expect(system.content).toContain("<<<FEEDBACK-f1>>>");
+    expect(user.content).toContain(
+      `<<<CURRENT-c1 ${dir}demo.tsx>>>\n// has <<<CURRENT-x>>> in it\n<<<END-CURRENT-c1>>>`,
+    );
+    expect(user.content).toContain(
+      "<<<FEEDBACK-f1>>>\nReview: Use a button.\n\nOn demo.tsx line 2: Rename it.\n<<<END-FEEDBACK-f1>>>",
+    );
   });
 });
 

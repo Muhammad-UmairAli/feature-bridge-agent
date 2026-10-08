@@ -8,16 +8,16 @@ use relative imports with explicit `.mts` extensions and can't import from `src/
 `@/*`. Keep them free of syntax that needs compiling (no enums, namespaces or
 parameter properties); `pnpm typecheck` enforces this.
 
-| Path                | What it does                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------- |
-| `lib/llm.mts`       | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run          |
-| `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents                      |
-| `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token                     |
-| `planner/`          | Planning agent: posts an implementation plan on new portal requests                   |
-| `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built           |
-| `coder/`            | Coding agent: turns an approved plan into a demo, then publishes it as a pull request |
-| `scope-check/`      | CI check that agent pull requests only change their demo folder                       |
-| `reviewer/`         | Automated, advisory review of the coding agent's pull requests                        |
+| Path                | What it does                                                                                                     |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `lib/llm.mts`       | Calls any OpenAI-compatible chat endpoint, with a token budget per agent run                                     |
+| `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents                                                 |
+| `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token                                                |
+| `planner/`          | Planning agent: posts an implementation plan on new portal requests                                              |
+| `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built                                      |
+| `coder/`            | Coding agent: turns an approved plan into a demo, publishes it as a pull request, and revises it once on request |
+| `scope-check/`      | CI check that agent pull requests only change their demo folder                                                  |
+| `reviewer/`         | Automated, advisory review of the coding agent's pull requests                                                   |
 
 ## Model configuration
 
@@ -186,6 +186,37 @@ Both key-holding jobs refuse re-runs. A withdrawn or superseded approval stops q
 anything else posts a fixed comment and applies `escalated-to-human`, and a crashed or
 cancelled job is handed over by a final plain-`gh` step. The gate refuses new approvals
 while `escalated-to-human` is on the request.
+
+### Revisions and circuit breakers
+
+`coder/revise.mts` revises a request pull request when someone applies `changes-requested`
+to it ("Revise request" workflow, `pull_request_target`, base-branch code). The gate job
+(no secrets) re-reads the pull request: it must be the coding agent's open `request-<number>`
+pull request, the latest `changes-requested` label must come from someone on
+`APPROVER_ALLOWLIST` with triage access, and the pull request must not have
+`escalated-to-human`. The first change request is revised; the next one goes to a maintainer
+(FR-16). Feedback is what allowlisted maintainers wrote on the pull request before the label:
+review summaries, inline review comments (with their file and line) and comments, unedited
+since (review summaries have no edit time), with quoted lines and hidden HTML removed. With
+no feedback, the agent asks for it and removes the label.
+
+The generate job (model key) checks again, records the round on the pull request before any
+model call (so a failed revision still counts), reads the demo's current files as git
+objects at the reviewed commit, and asks the model for the complete new file set from the
+approved plan, the current files (as data) and the feedback. The build's lint job checks the
+files, and the publish job (agent App key) checks again and pushes one commit whose parent is
+exactly the reviewed commit (`publish.pushRevision`: files left out are deleted from the demo
+folder; the branch is never force-updated, so if it moved, nothing is pushed). Every job hands
+the pull request to a maintainer if it can't finish. Removing the label while a revision
+runs cancels it with a short comment, but the round still counts (it was recorded before the
+model call), so the next change request goes to a maintainer. An unchanged demo isn't pushed.
+
+`coder/breaker.mts` runs after every failed CI run on a request branch ("CI breaker",
+`workflow_run`, no secrets). It counts the latest CI runs for pull requests on that branch:
+failures (or timeouts) in a row, back to the last passing run, with cancelled and skipped
+runs ignored and only this repository's runs counted (forks can reuse branch names). It
+counts runs, not commits: CI re-triggered on the same commit counts again. At two, the pull request gets `escalated-to-human` and a fixed comment, and the
+revision jobs refuse it from then on.
 
 ## Automated review
 

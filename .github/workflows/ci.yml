@@ -51,6 +51,10 @@ jobs:
         run: |
           out=$(env -i PATH="$PATH" node agents/reviewer/run.mts 2>&1) || true
           grep -q '"event":"review.misconfigured"' <<<"$out"
+      - name: Revision scripts load without dependencies
+        run: |
+          out=$(env -i PATH="$PATH" node agents/coder/run-revise.mts 2>&1) || true
+          grep -q '"event":"revise.misconfigured"' <<<"$out"
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck

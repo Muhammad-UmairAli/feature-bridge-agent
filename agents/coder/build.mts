@@ -58,6 +58,8 @@ export interface Bundle {
   approvalEventId: number;
   planSha256: string;
   files: GeneratedFile[];
+  /** Revisions only: the pull request and the commit the revision builds on. */
+  revision?: { pullNumber: number; head: string };
 }
 
 /** gzip + base64, small enough for a job output and an environment variable. */
@@ -84,13 +86,22 @@ export function decodeBundle(encoded: string, sha256: string): Bundle | null {
       typeof raw.planSha256 === "string" &&
       files.length > 0 &&
       files.every((file) => typeof file?.path === "string" && typeof file?.content === "string");
-    return valid
+    const revision = raw.revision;
+    const validRevision =
+      revision === undefined ||
+      (Number.isSafeInteger(revision?.pullNumber) &&
+        typeof revision?.head === "string" &&
+        /^[0-9a-f]{40}$/.test(revision.head));
+    return valid && validRevision
       ? {
           issueNumber: raw.issueNumber,
           slug: raw.slug,
           approvalEventId: raw.approvalEventId,
           planSha256: raw.planSha256,
           files,
+          ...(revision
+            ? { revision: { pullNumber: revision.pullNumber, head: revision.head } }
+            : {}),
         }
       : null;
   } catch {
@@ -127,7 +138,8 @@ async function handOver(
 const NOT_CURRENT =
   "The approval no longer passes the checks (for example the plan, the request or its labels changed), so it wasn't built.";
 
-function generationText(error: unknown): { reason: string; text: string } {
+/** Fixed text for a failed generation (shared with revisions). */
+export function generationText(error: unknown): { reason: string; text: string } {
   if (error instanceof GenerationFailure) {
     const texts: Record<GenerationFailure["reason"], string> = {
       plan_refused: "The approved plan contains code or markers, so it wasn't built automatically.",
@@ -252,6 +264,8 @@ function publishText(error: unknown): { reason: string; text: string } {
       pull_exists: "A pull request for this request already exists.",
       folder_exists: "A demo for this request already exists.",
       invalid_files: "The generated files didn't pass the final checks.",
+      branch_moved: "The request's branch changed while the files were being prepared.",
+      no_changes: "The files didn't change anything.",
     };
     return { reason: error.reason, text: texts[error.reason] };
   }

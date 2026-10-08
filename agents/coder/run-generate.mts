@@ -9,12 +9,12 @@
  * the request to a maintainer); a withdrawn approval is `built=false`.
  */
 import { appendFileSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
 
 import { createGitHubClient } from "../lib/github.mts";
 import { createLlmClient, readLlmConfig } from "../lib/llm.mts";
 import type { Log } from "../planner/planner.mts";
 import { runGenerate } from "./build.mts";
+import { readContext } from "./context.mts";
 import { readBuildSettings } from "./settings.mts";
 
 const log: Log = (level, event, fields = {}) => {
@@ -22,17 +22,6 @@ const log: Log = (level, event, fields = {}) => {
   if (level === "info") console.log(line);
   else console.error(line);
 };
-
-/** AGENTS.md and the shared UI sources, from the trusted checkout. */
-async function readContext() {
-  const agentsGuide = await readFile("AGENTS.md", "utf8");
-  const ui = (await readdir("src/components/ui")).filter((name) => /^[a-z0-9-]+\.tsx$/.test(name));
-  const paths = [...ui.map((name) => `src/components/ui/${name}`), "src/lib/utils.ts"];
-  const context = await Promise.all(
-    paths.map(async (path) => ({ path, content: await readFile(path, "utf8") })),
-  );
-  return { agentsGuide, context };
-}
 
 async function main(): Promise<number> {
   const output = process.env.GITHUB_OUTPUT;
