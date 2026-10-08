@@ -91,7 +91,7 @@ export interface PlannerSettings {
 /** `handed_over`: sent back twice; `waiting`: asked the maintainer for feedback. */
 export type PlannerOutcome = "skipped" | "planned" | "failed" | "handed_over" | "waiting";
 
-const byAgent = (comment: Comment) =>
+export const byAgent = (comment: Comment) =>
   comment.user?.type === "Bot" &&
   comment.user.login === AGENT_LOGIN &&
   comment.user.id === AGENT_ID;

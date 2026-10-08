@@ -43,6 +43,7 @@ export const REFUSED_MARKER = "<!-- feature-bridge-agent:approval-refused -->";
 /** Written by the build job before it starts, so one approval builds at most once. */
 export const buildMarker = (approvalEventId: number) =>
   `<!-- feature-bridge-agent:build approval=${approvalEventId} -->`;
+export const BUILD_MARKER = /^<!-- feature-bridge-agent:build approval=\d+ -->/;
 
 export interface GateSettings {
   issueNumber: number;
