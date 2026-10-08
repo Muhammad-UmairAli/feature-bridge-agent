@@ -2,12 +2,14 @@
  * Planning agent entry point (GitHub Actions, Node 24).
  *
  * Environment: GITHUB_TOKEN, GITHUB_REPOSITORY, ISSUE_NUMBER, PORTAL_BOT_LOGIN,
- * the LLM_* settings, and optionally LLM_IMAGE_INPUT=on. Logs JSON lines with
+ * the LLM_* settings, and optionally LLM_IMAGE_INPUT=on. To revise a plan:
+ * PLANNER_MODE=revise and APPROVER_ALLOWLIST. Logs JSON lines with
  * counts and outcomes only. Exits non-zero when planning failed, so the run
  * shows as failed (the workflow then makes sure the request is marked for a
  * maintainer).
  */
 import { execFile } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
@@ -52,6 +54,10 @@ async function main(): Promise<number> {
     readContext,
     checkScreenshot: (url) => checkScreenshot(url),
     log,
+    // Lets the workflow's hand-over step act on this revision.
+    accept: () => {
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, "accepted=true\n");
+    },
   });
   return outcome === "failed" ? 1 : 0;
 }

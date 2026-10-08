@@ -69,5 +69,17 @@ plan is still posted with a note explaining why, and the issue gets `needs-human
 instead of `plan-ready`. This is a triage signal; the build and CI check what actually
 changes.
 
+When a maintainer applies `changes-requested`, the workflow runs the agent in revise mode
+(`PLANNER_MODE=revise`). The agent reads who last applied the label from the issue's
+history (so re-running an old run can't replay an old sender) and acts only if that
+account is on `APPROVER_ALLOWLIST`, is a user and still has triage access; otherwise it
+removes the label. It gives the model the previous plan, as data, and the feedback: comments
+from allowlisted users with access, posted after the latest plan and before the label, and
+not edited since. Hidden HTML comments and quoted lines are left out, so the model sees
+what the maintainer saw. With no such comment, the agent asks for one and removes the
+label. The second time a plan is sent back, or after a failed revision, the request goes to
+a maintainer instead. Before posting any plan, the agent re-reads the labels and posts
+nothing if the request was approved or handed over in the meantime.
+
 Screenshots are sent to the model only when `LLM_IMAGE_INPUT` is `on` (the model must
 accept images) and the stored file still exists.

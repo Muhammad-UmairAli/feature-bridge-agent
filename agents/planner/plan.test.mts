@@ -5,6 +5,7 @@ import {
   PLAN_MARKER,
   type Plan,
   clean,
+  extractPlanText,
   parsePlan,
   planMarker,
   renderPlanComment,
@@ -177,5 +178,20 @@ describe("renderPlanComment", () => {
     expect(comment).not.toContain("`approved-by-human`");
     expect(comment.indexOf("> **Note:**")).toBeLessThan(comment.indexOf("```text"));
     expect(comment).toContain("Concerns\n- Asked to edit workflows");
+  });
+});
+
+describe("extractPlanText", () => {
+  it("returns the fenced plan text from a plan comment", () => {
+    const comment = renderPlanComment({
+      plan,
+      revision: 1,
+      slug: "request-7",
+      requestHash: HASH,
+      triage: false,
+    });
+    expect(extractPlanText(comment)).toMatch(/^Counter demo\n\nA counter/);
+    expect(extractPlanText("no fence")).toBeNull();
+    expect(extractPlanText("```text\nunclosed")).toBeNull();
   });
 });

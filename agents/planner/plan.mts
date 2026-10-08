@@ -160,6 +160,16 @@ export const PLAN_MARKER =
   /^<!-- feature-bridge-agent:plan revision=(\d+)(?: request=([0-9a-f]{16}))? -->/;
 export const planMarker = (revision: number, requestHash?: string) =>
   `<!-- feature-bridge-agent:plan revision=${revision}${requestHash ? ` request=${requestHash}` : ""} -->`;
+/** The plan text inside a plan comment's fence (already cleaned when it was posted), or null. */
+export function extractPlanText(commentBody: string): string | null {
+  const lines = commentBody.replace(/\r\n?/g, "\n").split("\n");
+  const open = lines.findIndex((line) => /^`{3,}text$/.test(line));
+  if (open === -1) return null;
+  const fence = lines[open].slice(0, -"text".length);
+  const close = lines.indexOf(fence, open + 1);
+  return close === -1 ? null : lines.slice(open + 1, close).join("\n");
+}
+
 /** Hidden marker on the comment posted when planning stops. */
 export const STOPPED_MARKER = "<!-- feature-bridge-agent:planning-stopped -->";
 
@@ -212,7 +222,7 @@ export function renderPlanComment({
     "",
     triage
       ? "It needs a maintainer before anything is built (see the note below)."
-      : `Automated check: the ${plan.files.length} listed file${plan.files.length === 1 ? " is" : "s are"} allowed in the demo folder, and the plan text names nothing outside it. The model's own statements are not verified. A maintainer on the approver list can approve it with the \`approved-by-human\` label, or apply \`changes-requested\` and explain what to change in a comment.`,
+      : `Automated check: the ${plan.files.length} listed file${plan.files.length === 1 ? " is" : "s are"} allowed in the demo folder, and the plan text names nothing outside it. The model's own statements are not verified. A maintainer on the approver list can approve it with the \`approved-by-human\` label, or comment with what to change and then apply \`changes-requested\`.`,
     ...notes.flatMap((note) => ["", `> **Note:** ${note}`]),
     "",
     `${fence}text`,
