@@ -156,8 +156,10 @@ describe("createGitHubClient", () => {
     await expect(github.getRole("lead")).rejects.toBeInstanceOf(GitHubApiError);
   });
 
-  it("finds the latest time a label was added, across pages", async () => {
+  it("lists label changes by event id and finds the latest addition, across pages", async () => {
+    let id = 0;
     const event = (event: string, name: string, login: string, at: string) => ({
+      id: (id += 1),
       event,
       label: { name },
       actor: { login, id: 1, type: "User" },
@@ -165,19 +167,27 @@ describe("createGitHubClient", () => {
     });
     const page1 = [
       event("labeled", "changes-requested", "first", "2026-10-01T00:00:00Z"),
-      ...Array.from({ length: 99 }, () => event("labeled", "other", "x", "2026-10-02T00:00:00Z")),
+      ...Array.from({ length: 98 }, () => event("labeled", "other", "x", "2026-10-02T00:00:00Z")),
+      { id: 999, event: "commented", actor: null },
     ];
     const page2 = [
-      event("unlabeled", "changes-requested", "first", "2026-10-03T00:00:00Z"),
       event("labeled", "changes-requested", "second", "2026-10-04T00:00:00Z"),
+      event("unlabeled", "changes-requested", "first", "2026-10-03T00:00:00Z"),
       { event: "labeled", label: null, actor: null },
     ];
     const { fetch, github } = client(Response.json(page1), Response.json(page2));
-    expect(await github.latestLabelEvent(7, "changes-requested")).toEqual({
+    const changes = await github.labelEvents(7);
+    expect(changes).toHaveLength(101);
+    expect(changes.map((c) => c.id)).toEqual([...changes.map((c) => c.id)].sort((a, b) => a - b));
+    expect(changes.at(-1)).toMatchObject({ event: "unlabeled", label: "changes-requested" });
+    expect(String(fetch.mock.calls[0][0])).toContain("/issues/7/events?per_page=100&page=1");
+
+    const { github: again } = client(Response.json(page1), Response.json(page2));
+    expect(await again.latestLabelEvent(7, "changes-requested")).toEqual({
+      id: 100,
       actor: { login: "second", id: 1, type: "User" },
       createdAt: "2026-10-04T00:00:00Z",
     });
-    expect(String(fetch.mock.calls[0][0])).toContain("/issues/7/events?per_page=100&page=1");
     const { github: empty } = client(Response.json([]));
     expect(await empty.latestLabelEvent(7, "changes-requested")).toBeNull();
   });

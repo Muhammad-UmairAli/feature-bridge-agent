@@ -111,10 +111,12 @@ describe("parseRequestBody", () => {
 });
 
 describe("requestHash", () => {
-  it("is a stable 16-character fingerprint that changes with the text", () => {
-    expect(requestHash("Add a counter.")).toMatch(/^[0-9a-f]{16}$/);
-    expect(requestHash("Add a counter.")).toBe(requestHash("Add a counter."));
-    expect(requestHash("Add a counter!")).not.toBe(requestHash("Add a counter."));
+  it("is a stable SHA-256 fingerprint of the text and the screenshot link", () => {
+    const base = { description: "Add a counter.", screenshotUrl: null };
+    expect(requestHash(base)).toMatch(/^[0-9a-f]{64}$/);
+    expect(requestHash(base)).toBe(requestHash({ ...base }));
+    expect(requestHash({ ...base, description: "Add a counter!" })).not.toBe(requestHash(base));
+    expect(requestHash({ ...base, screenshotUrl: SCREENSHOT })).not.toBe(requestHash(base));
   });
 });
 

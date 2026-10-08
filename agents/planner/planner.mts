@@ -14,7 +14,12 @@
  * Runs for the same issue must not overlap (the workflow serialises them per
  * issue). Re-running a failed run retries it.
  */
-import { type Allowlist, type GitHubAccount, isAllowlisted } from "../lib/allowlist.mts";
+import {
+  type Allowlist,
+  type GitHubAccount,
+  STEERING_ROLES,
+  isAllowlisted,
+} from "../lib/allowlist.mts";
 import {
   type Comment,
   GitHubApiError,
@@ -51,8 +56,6 @@ export const AGENT_ID = 41898282;
 const MAX_PLANS = 2;
 const MAX_FEEDBACK_COMMENTS = 5;
 const MAX_FEEDBACK_CODE_POINTS = 2_000;
-/** Roles with at least triage access; only they may steer the agent. */
-const STEERING_ROLES = new Set(["triage", "write", "maintain", "admin"]);
 const MAX_OUTPUT_TOKENS = 4_000;
 const CALL_TIMEOUT_MS = 120_000;
 
@@ -382,13 +385,11 @@ async function draftAndPost(
         `This plan needs a maintainer before it can go ahead: ${scope.reasons.join("; ")}.`,
       );
     }
-    // A maintainer may have approved or taken over while the model was working;
-    // a plan they never saw must not appear next to that decision.
+    // A maintainer may have taken over while the model was working. (An
+    // approval applied meanwhile is refused by the approval gate, because this
+    // plan is newer than it; dropping the plan here would strand the request.)
     const current = await github.getIssue(number);
-    if (
-      current.labels.includes(LABELS.approved) ||
-      current.labels.includes(LABELS.needsHumanTriage)
-    ) {
+    if (current.labels.includes(LABELS.needsHumanTriage)) {
       await bestEffort(log, number, [() => github.removeLabel(number, LABELS.planning)]);
       log("info", "planner.skipped", { issue: number, reason: "superseded" });
       return "skipped";
@@ -399,7 +400,7 @@ async function draftAndPost(
         plan,
         revision: draft.revision,
         slug,
-        requestHash: requestHash(request.description),
+        requestHash: requestHash(request),
         notes,
         triage: scope.reasons.length > 0,
       }),

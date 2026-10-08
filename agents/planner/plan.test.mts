@@ -25,7 +25,7 @@ const reply = {
 };
 
 const plan: Plan = parsePlan(JSON.stringify(reply)) as Plan;
-const HASH = "0123456789abcdef";
+const HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 describe("parsePlan", () => {
   it("parses a well-formed reply", () => {
@@ -134,8 +134,8 @@ describe("renderPlanComment", () => {
       requestHash: HASH,
       triage: false,
     });
-    expect(comment.startsWith(planMarker(1, HASH))).toBe(true);
-    expect(PLAN_MARKER.exec(comment)?.slice(1)).toEqual(["1", HASH]);
+    expect(comment.startsWith(planMarker(1, HASH, true))).toBe(true);
+    expect(PLAN_MARKER.exec(comment)?.slice(1)).toEqual(["1", HASH, "1"]);
     expect(comment).toContain("`/demos/request-7`");
     expect(comment).toContain("Automated check: the 2 listed files are allowed in the demo folder");
     expect(comment).toContain("`approved-by-human`");

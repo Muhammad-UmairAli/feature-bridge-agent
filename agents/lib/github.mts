@@ -43,8 +43,15 @@ export interface Comment {
 
 /** The latest time a label was added, and by whom. */
 export interface LabelEvent {
+  id: number;
   actor: Account | null;
   createdAt: string;
+}
+
+/** A label being added or removed, from the issue's (append-only) event history. */
+export interface LabelChange extends LabelEvent {
+  event: "labeled" | "unlabeled";
+  label: string;
 }
 
 export interface GitHubClient {
@@ -56,6 +63,8 @@ export interface GitHubClient {
   removeLabel(number: number, label: string): Promise<void>;
   /** The account's role on the repository (`admin`, `maintain`, `write`, `triage`, `read`), or "" if none. */
   getRole(login: string): Promise<string>;
+  /** Every label added to or removed from the issue, oldest first (by event id). */
+  labelEvents(number: number): Promise<LabelChange[]>;
   /** The most recent time `label` was added to the issue, or null if never. */
   latestLabelEvent(number: number, label: string): Promise<LabelEvent | null>;
 }
@@ -186,22 +195,40 @@ export function createGitHubClient(
       );
     },
 
-    async latestLabelEvent(number, label) {
-      let latest: LabelEvent | null = null;
+    async labelEvents(number) {
+      const changes: LabelChange[] = [];
       for (let page = 1; page <= MAX_PAGES; page += 1) {
         const batch = (await (
           await call("issues.listEvents", `/issues/${number}/events?per_page=100&page=${page}`)
         ).json()) as unknown;
         if (!Array.isArray(batch)) throw new Error("GitHub returned a non-list");
         for (const item of batch as Raw[]) {
-          const name = (item.label as Raw | null | undefined)?.name;
-          if (item.event === "labeled" && name === label) {
-            latest = { actor: account(item.actor), createdAt: text(item.created_at) };
+          const label = (item.label as Raw | null | undefined)?.name;
+          if (
+            (item.event === "labeled" || item.event === "unlabeled") &&
+            typeof label === "string" &&
+            typeof item.id === "number"
+          ) {
+            changes.push({
+              id: item.id,
+              event: item.event,
+              label,
+              actor: account(item.actor),
+              createdAt: text(item.created_at),
+            });
           }
         }
-        if (batch.length < 100) return latest;
+        if (batch.length < 100) return changes.sort((a, b) => a.id - b.id);
       }
       throw new Error("too many events to read safely");
+    },
+
+    async latestLabelEvent(number, label) {
+      const added = (await this.labelEvents(number)).filter(
+        (change) => change.event === "labeled" && change.label === label,
+      );
+      const latest = added[added.length - 1];
+      return latest ? { id: latest.id, actor: latest.actor, createdAt: latest.createdAt } : null;
     },
 
     async getRole(login) {

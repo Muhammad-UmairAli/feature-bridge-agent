@@ -1,0 +1,83 @@
+name: Build request
+
+# Runs when a maintainer applies approved-by-human to a request issue. The gate
+# job checks the approval from the issue's current state: who applied the
+# label (approver list and triage access), the status labels, and that the
+# plan being approved is the latest one the planning agent posted, unedited,
+# made from the current request text and still within the demo-area rules.
+# A refused approval loses its label and gets a fixed explanation.
+#
+# Off until the repository variable PORTAL_BOT_LOGIN is set (forks do nothing).
+# The gate holds no model key.
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+# One approval check per issue at a time (separate from the planning agent's
+# group, so neither can push the other's waiting run out of the queue; the
+# gate's checks hold whatever the planner is doing). Other label events get a
+# group of their own.
+concurrency:
+  group: >-
+    build-request-${{ github.event.issue.number }}${{
+    github.event.label.name != 'approved-by-human'
+    && format('-ignored-{0}', github.run_id) || '' }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  gate:
+    name: Check approval
+    # Labels added by apps are checked too, so they're removed with an explanation.
+    if: >-
+      vars.PORTAL_BOT_LOGIN != '' &&
+      github.event.label.name == 'approved-by-human' &&
+      github.event.issue.user.type == 'Bot' &&
+      github.event.issue.user.login == vars.PORTAL_BOT_LOGIN
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # the agent scripts
+      issues: write # remove a refused label and explain why
+    outputs:
+      approved: ${{ steps.gate.outputs.approved }}
+      approval_event_id: ${{ steps.gate.outputs.approval_event_id }}
+      plan_comment_id: ${{ steps.gate.outputs.plan_comment_id }}
+      plan_sha256: ${{ steps.gate.outputs.plan_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Check approval
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          APPROVER_ALLOWLIST: ${{ vars.APPROVER_ALLOWLIST }}
+        run: node agents/gate/run.mts
+
+      # If the check crashed, was cancelled or timed out, don't leave an
+      # unchecked approval label behind (the planning agent treats it as final).
+      - name: Remove an unchecked approval
+        if: (failure() || cancelled()) && steps.gate.outputs.approved != 'true'
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          repo="$GITHUB_REPOSITORY"
+          rc=0
+          gh issue edit "$ISSUE_NUMBER" --repo "$repo" --remove-label approved-by-human || rc=$?
+          body=$(printf '%s\n### Approval not checked\n\nThe approval check failed, was cancelled or timed out, so the %s label was removed. Apply it again to retry.' \
+            '<!-- feature-bridge-agent:approval-refused -->' 'approved-by-human')
+          gh issue comment "$ISSUE_NUMBER" --repo "$repo" --body "$body" || rc=$?
+          exit "$rc"

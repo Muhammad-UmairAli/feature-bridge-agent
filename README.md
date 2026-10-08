@@ -98,6 +98,8 @@ When the portal creates a request issue, the "Plan request" workflow posts an im
 
 To ask for a better plan, a maintainer on `APPROVER_ALLOWLIST` (with triage access or higher; custom repository roles don't count) first comments with what to change, then applies `changes-requested`. The agent posts a revised plan using only comments from allowlisted maintainers posted before the label and not edited since. A plan can be revised once: the next `changes-requested` (or a failed revision) hands the request to a maintainer (`needs-human-triage`). The label is removed again if anyone else applies it, and other people's comments are ignored.
 
+To approve a plan, a maintainer on `APPROVER_ALLOWLIST` applies `approved-by-human` while the request shows `plan-ready`. The "Build request" workflow first checks the approval against the issue's current state (who applied it, the status labels, and that the plan is the latest, unedited one made from the current request text and within the demo-area rules); anything else removes the label with an explanation. If the check fails or is cancelled, the label is removed too; apply it again to retry.
+
 The workflow does nothing on forks or until `PORTAL_BOT_LOGIN` is set. If a run fails (including missing settings), is cancelled or times out before the request has a status, the request gets `needs-human-triage`. To retry after fixing the cause, remove that label and re-run the failed run from the Actions tab (for a revision, the run started by `changes-requested`). Failed runs are started by the App, so GitHub may not email anyone: watch the repository's issues, or check the Actions tab.
 
 ### Screenshots and takedowns

@@ -96,9 +96,11 @@ export function parseRequestBody(body: string): RequestBody | null {
   };
 }
 
-/** A short fingerprint of the request text a plan was made from. */
-export const requestHash = (description: string) =>
-  createHash("sha256").update(description).digest("hex").slice(0, 16);
+/** A fingerprint of the request a plan was made from: its text and screenshot link. */
+export const requestHash = (request: RequestBody) =>
+  createHash("sha256")
+    .update(JSON.stringify([request.description, request.screenshotUrl]))
+    .digest("hex");
 
 export const codePoints = (text: string) => Array.from(text).length;
 

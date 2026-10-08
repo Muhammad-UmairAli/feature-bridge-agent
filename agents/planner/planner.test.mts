@@ -62,7 +62,9 @@ function fakeGitHub(issue: Issue, comments: Comment[] = []) {
       events.push(`-${name}`);
     }),
     getRole: vi.fn<(login: string) => Promise<string>>(async () => "write"),
+    labelEvents: vi.fn<GitHubClient["labelEvents"]>(async () => []),
     latestLabelEvent: vi.fn<GitHubClient["latestLabelEvent"]>(async () => ({
+      id: 500,
       actor: { login: "Lead", id: 7, type: "User" },
       createdAt: "2026-10-08T10:00:00Z",
     })),
@@ -302,7 +304,7 @@ describe("planRequest", () => {
     const t = setup(portalIssue());
     await planRequest(settings, t.deps);
     expect(t.posted[0]).toMatch(
-      /^<!-- feature-bridge-agent:plan revision=1 request=[0-9a-f]{16} -->/,
+      /^<!-- feature-bridge-agent:plan revision=1 request=[0-9a-f]{64} ready=1 -->/,
     );
   });
 
@@ -376,7 +378,7 @@ describe("planRequest in revise mode", () => {
   const revise = { ...settings, mode: "revise" as const, allowlist: parseAllowlist("lead") };
   const planComment = (revision: number, id = 10): Comment => ({
     id,
-    body: `${planMarker(revision, "0123456789abcdef")}\n### Implementation plan\n\n\`\`\`text\nOld plan ${revision}\n\`\`\``,
+    body: `${planMarker(revision, "a".repeat(64), true)}\n### Implementation plan\n\n\`\`\`text\nOld plan ${revision}\n\`\`\``,
     user: { login: AGENT_LOGIN, id: AGENT_ID, type: "Bot" },
     createdAt: BEFORE,
     updatedAt: BEFORE,
@@ -456,6 +458,7 @@ describe("planRequest in revise mode", () => {
   it("authorises whoever last applied the label, from the issue's history", async () => {
     const t = sentBack([planComment(1), feedback("Change it")]);
     t.github.latestLabelEvent.mockResolvedValue({
+      id: 501,
       actor: { login: "stranger", id: 9, type: "User" },
       createdAt: LABELLED_AT,
     });
@@ -473,7 +476,7 @@ describe("planRequest in revise mode", () => {
     ["was deleted", null],
   ])("refuses a label applied by an account that %s", async (_name, actor) => {
     const t = sentBack([planComment(1), feedback("Change it")]);
-    t.github.latestLabelEvent.mockResolvedValue({ actor, createdAt: LABELLED_AT });
+    t.github.latestLabelEvent.mockResolvedValue({ id: 502, actor, createdAt: LABELLED_AT });
     expect(await planRequest(revise, t.deps)).toBe("skipped");
   });
 
@@ -591,9 +594,9 @@ describe("planRequest in revise mode", () => {
     expect([...t.labels]).toEqual(["portal-request", "needs-human-triage"]);
   });
 
-  it("doesn't post a revision nobody saw once the request was approved meanwhile", async () => {
+  it("doesn't post a revision once a maintainer took over meanwhile", async () => {
     const t = sentBack([planComment(1), feedback("Change it")]);
-    const approved = { ...portalIssue(), labels: ["portal-request", "approved-by-human"] };
+    const approved = { ...portalIssue(), labels: ["portal-request", "needs-human-triage"] };
     t.github.getIssue
       .mockResolvedValueOnce(
         portalIssue({ labels: ["portal-request", "plan-ready", "changes-requested"] }),

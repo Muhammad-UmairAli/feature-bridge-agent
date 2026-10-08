@@ -14,6 +14,7 @@ parameter properties); `pnpm typecheck` enforces this.
 | `lib/allowlist.mts` | Decides whether a GitHub account may approve or steer the agents             |
 | `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token            |
 | `planner/`          | Planning agent: posts an implementation plan on new portal requests          |
+| `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built  |
 
 ## Model configuration
 
@@ -83,3 +84,29 @@ nothing if the request was approved or handed over in the meantime.
 
 Screenshots are sent to the model only when `LLM_IMAGE_INPUT` is `on` (the model must
 accept images) and the stored file still exists.
+
+## Approval gate
+
+`gate/run.mts` runs when someone applies `approved-by-human`. It reads the issue's current
+state rather than the triggering event (re-runs replay that), and accepts the approval
+only if all of these hold:
+
+- whoever last applied the label (from the issue's event history) is on
+  `APPROVER_ALLOWLIST`, is a user, has triage access or higher, and isn't the issue author;
+- the request has `plan-ready`, with no `changes-requested`, `planning` or
+  `needs-human-triage`, and the label history shows no new drafting or hand-over since
+  the plan was posted;
+- the latest plan from the planning agent was posted before the approval (not in the same
+  second), was never edited, was marked ready when posted, isn't followed by a "planning
+  stopped" comment, was made from the current request text and screenshot link, and still
+  passes the demo-area checks;
+- the approval hasn't already been used for a build.
+
+Otherwise it removes the label and explains why in a fixed comment; if the check itself
+fails or is cancelled, the workflow removes the label so it can be applied again. An
+accepted approval gives the build job the approval's event id, the plan comment's id and a
+SHA-256 of the approved plan text, which the build re-verifies before using.
+
+Known limit: every workflow in this repository comments as the same bot, so anyone who
+can push a workflow (write access) could post a plan comment the gate would accept. Keep
+write access to people you'd trust to approve.
