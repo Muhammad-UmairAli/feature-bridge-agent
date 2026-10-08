@@ -138,6 +138,13 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // The loader is written by the workflow from a fixed template (CI compares it
+  // byte for byte) and is the one place a demo is imported dynamically, so it
+  // runs in the browser only.
+  {
+    files: ["src/app/demos/*/demo-loader.tsx"],
+    rules: { "no-restricted-syntax": "off" },
+  },
   // Disable stylistic rules that conflict with Prettier. Keep this last.
   prettier,
   globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts"]),

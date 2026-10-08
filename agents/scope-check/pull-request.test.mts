@@ -6,6 +6,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { loaderTemplate, pageTemplate } from "../coder/template.mts";
+
 import { checkPullRequest, createGit } from "./pull-request.mts";
 
 const SLUG = "request-7";
@@ -38,6 +40,12 @@ const write = (path: string, content = "export {};\n") => {
   mkdirSync(join(repo, path, ".."), { recursive: true });
   writeFileSync(join(repo, path), content);
 };
+/** The workflow's page and loader plus a demo component. */
+const writeDemo = () => {
+  write(`${dir}page.tsx`, pageTemplate("Counter"));
+  write(`${dir}demo-loader.tsx`, loaderTemplate());
+  write(`${dir}demo.tsx`, '"use client";\n\nexport default function Demo() {\n  return null;\n}\n');
+};
 const commit = (message: string) => {
   git("add", "-A");
   git("commit", "-q", "--allow-empty", "-m", message);
@@ -58,12 +66,12 @@ describe("checkPullRequest", () => {
   it("passes a clean request branch, including empty commits", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
-    write(`${dir}page.tsx`, "export default function Page() {\n  return null;\n}\n");
-    commit("add page");
+    writeDemo();
+    commit("add demo");
     write(`${dir}counter.tsx`);
     commit("add counter");
     const head = commit("empty");
-    expect(await check(base, head)).toEqual({ skipped: false, checked: 2, problems: [] });
+    expect(await check(base, head)).toEqual({ skipped: false, checked: 4, problems: [] });
   });
 
   it("skips pull requests that aren't request branches", async () => {
@@ -80,7 +88,7 @@ describe("checkPullRequest", () => {
   it("lists exactly what's wrong with a sneaky branch", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
-    write(`${dir}page.tsx`);
+    writeDemo();
     write(`${dir}helper.ts`);
     commit("add demo");
     git("mv", `${dir}helper.ts`, "src/app/helper.ts"); // a rename out of the folder
@@ -103,7 +111,7 @@ describe("checkPullRequest", () => {
   it("counts identical files toward the total size", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
-    write(`${dir}page.tsx`);
+    writeDemo();
     const big = `export const data = "${"x".repeat(90_000)}";\n`;
     for (let i = 0; i < 12; i += 1) write(`${dir}copy-${i}.ts`, big);
     const head = commit("many copies");
@@ -115,8 +123,8 @@ describe("checkPullRequest", () => {
   it("refuses a branch that leaves no demo page at the head", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
-    write(`${dir}page.tsx`);
-    commit("add page");
+    writeDemo();
+    commit("add demo");
     git("rm", "-q", `${dir}page.tsx`);
     const head = commit("remove it again");
     expect((await check(base, head)).problems).toEqual([
@@ -140,10 +148,13 @@ describe("checkPullRequest", () => {
   });
 
   it("refuses changing a demo that already exists on the base branch", async () => {
-    write(`${dir}page.tsx`);
+    writeDemo();
     const base = commit("live demo");
     git("checkout", "-q", "-b", SLUG);
-    write(`${dir}page.tsx`, "export const changed = true;\n");
+    write(
+      `${dir}demo.tsx`,
+      '"use client";\n\nexport default function Demo() {\n  return "changed";\n}\n',
+    );
     const head = commit("change live demo");
     expect((await check(base, head)).problems).toEqual([
       `src/app/demos/${SLUG}/ already exists on the base branch`,
@@ -165,5 +176,21 @@ describe("checkPullRequest", () => {
     ]);
     const base = git("rev-parse", "HEAD");
     await expect(check(base, "f".repeat(40))).rejects.toThrow();
+  });
+
+  it("refuses a page or loader that differs from the workflow's templates", async () => {
+    const base = git("rev-parse", "HEAD");
+    git("checkout", "-q", "-b", SLUG);
+    writeDemo();
+    write(
+      `${dir}page.tsx`,
+      pageTemplate("Counter").replace("<DemoLoader />", "<DemoLoader />{process.env.X}"),
+    );
+    write(`${dir}demo-loader.tsx`, `${loaderTemplate()}export const x = 1;\n`);
+    const head = commit("tamper");
+    expect((await check(base, head)).problems).toEqual([
+      `src/app/demos/${SLUG}/page.tsx doesn't match the workflow's page template`,
+      `src/app/demos/${SLUG}/demo-loader.tsx doesn't match the workflow's loader template`,
+    ]);
   });
 });

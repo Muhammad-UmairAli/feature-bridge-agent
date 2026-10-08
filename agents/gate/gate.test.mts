@@ -41,6 +41,7 @@ const plan = parsePlan(
     steps: ["Create page.tsx", "Add counter.tsx"],
     files: [
       { path: "src/app/demos/request-7/page.tsx", action: "create", purpose: "Route" },
+      { path: "src/app/demos/request-7/demo.tsx", action: "create", purpose: "The demo" },
       { path: "src/app/demos/request-7/counter.tsx", action: "create", purpose: "Component" },
       { path: "src/app/demos/request-7/counter.test.tsx", action: "create", purpose: "Tests" },
     ],
