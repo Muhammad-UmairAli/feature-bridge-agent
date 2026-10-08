@@ -57,6 +57,8 @@ jobs:
         run: |
           out=$(env -i PATH="$PATH" node agents/gate/run.mts 2>&1) || true
           grep -q '"event":"gate.misconfigured"' <<<"$out"
+      - name: Write-scope check loads
+        run: HEAD_REF=main node agents/scope-check/run.mts | grep -q "Not a request branch"
 
   pre-commit:
     name: Pre-commit hooks

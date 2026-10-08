@@ -15,6 +15,7 @@ parameter properties); `pnpm typecheck` enforces this.
 | `lib/github.mts`    | The few GitHub REST calls the agents make with the workflow token            |
 | `planner/`          | Planning agent: posts an implementation plan on new portal requests          |
 | `gate/`             | Approval gate: checks an `approved-by-human` label before anything is built  |
+| `scope-check/`      | CI check that agent pull requests only change their demo folder              |
 
 ## Model configuration
 
@@ -110,3 +111,26 @@ SHA-256 of the approved plan text, which the build re-verifies before using.
 Known limit: every workflow in this repository comments as the same bot, so anyone who
 can push a workflow (write access) could post a plan comment the gate would accept. Keep
 write access to people you'd trust to approve.
+
+## Write-scope check
+
+The "Write scope" workflow (`scope-check/`) runs on `pull_request_target`, so the job and
+the checker come from the base branch and a pull request can't change the check it is
+judged by. The pull request's commits are fetched as git objects only; nothing from them
+is checked out or run, and the job has no secrets.
+
+- A request branch must be named exactly `request-<number>`, come from this repository,
+  target `main`, and be opened by the coding agent (`AGENT_APP_LOGIN`). The agent may not
+  open pull requests from any other branch.
+- Every file touched by every commit, deletions and both sides of renames included, must
+  be an allowed file in a new `src/app/demos/request-<number>/` folder (checked by two
+  independent rules). Merge commits, symlinks, submodules and executable files are
+  refused.
+- Every added file must be UTF-8 text under 100 KB (1 MB in total) without control,
+  bidi or zero-width characters, and without lint or type-check suppressions.
+
+ESLint rules for `src/app/demos/**` flag common forms of environment access, Node APIs,
+network calls, other windows, server actions, injected HTML, `eval`, dynamic imports and
+redirects, allow imports only from `@/components/ui/*`, `@/lib/utils` and the demo's own
+files, and can't be switched off inline. They help reviewers; they aren't a security
+boundary on their own. Make "Write scope" and the CI checks required on `main`.

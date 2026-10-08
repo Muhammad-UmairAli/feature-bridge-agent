@@ -95,7 +95,7 @@ describe("parseRequestBody", () => {
   });
 
   it("drops invisible characters that survived an edit, keeping line breaks and tabs", () => {
-    const edited = "```text\nA​‮B\u{E0041}\n\tC D\n```";
+    const edited = "```text\nA\u200b\u202eB\u{E0041}\n\tC\u2028D\n```";
     expect(parseRequestBody(edited)?.description).toBe("AB\n\tCD");
   });
 
@@ -106,7 +106,7 @@ describe("parseRequestBody", () => {
   it("returns null when the body isn't in the portal's format", () => {
     expect(parseRequestBody("no fence here")).toBeNull();
     expect(parseRequestBody("```text\nnever closed")).toBeNull();
-    expect(parseRequestBody("```text\n  ​ \n```")).toBeNull();
+    expect(parseRequestBody("```text\n  \u200b \n```")).toBeNull();
   });
 });
 

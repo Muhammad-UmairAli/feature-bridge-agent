@@ -25,7 +25,7 @@ Each approved request gets exactly one folder, `src/app/demos/<slug>/`.
 
 - **The slug is assigned by the workflow**, never taken from request text. It matches `^[a-z0-9]+(-[a-z0-9]+)*$` and is at most 40 characters.
 - **The folder must not already exist**, unless the approved plan explicitly updates that existing demo.
-- **Write only inside that folder.** Everything outside it is off-limits, including other demos.
+- **Write only inside that folder.** Everything outside it is off-limits, including other demos. CI checks every file in every commit of a `request-<number>` pull request, and lint rules flag much of the "not allowed" list below (inline `eslint-disable` comments are refused).
 
 ### Allowed files (flat, no subfolders)
 
