@@ -155,3 +155,14 @@ allowed" list; then the repository's own ESLint rules run on the files (parsing,
 running them). A failing answer gets one retry with the problems listed; after that, the
 build stops for a human. These checks are tripwires; isolation, CI and human review are the
 real controls.
+
+`coder/publish.mts` then publishes the files as the coding agent's own GitHub App
+(`lib/app-auth.mts`: RS256 app JWT with `node:crypto`). Before minting a token it checks
+that the App's installation covers selected repositories only and holds exactly contents
+and pull requests write plus metadata read; the token must then name this repository only
+and carry only what was asked for. Credentials are masked in the logs and the key is
+removed from the process environment once read. Publishing checks the files again (the
+model's files and both templates), creates branch `request-<number>` from `main` with one
+commit through the Git Data API, and opens a pull request into `main` with fixed text. It
+never force-updates or deletes anything; lost responses are recovered by looking again,
+and anything else is left for a maintainer.
