@@ -168,6 +168,9 @@ describe("bundles", () => {
     const { bundle: text, sha256 } = encodeBundle(bundle);
     expect(text).toMatch(/^[A-Za-z0-9+/]+=*$/);
     expect(decodeBundle(text, sha256)).toEqual(bundle);
+    const revised = { ...bundle, revision: { pullNumber: 30, head: "c".repeat(40) } };
+    const encoded = encodeBundle(revised);
+    expect(decodeBundle(encoded.bundle, encoded.sha256)).toEqual(revised);
   });
 
   it("refuse changed, foreign or malformed data", () => {
@@ -181,6 +184,8 @@ describe("bundles", () => {
     expect(decodeBundle(notGzip, createHash("sha256").update(notGzip).digest("hex"))).toBeNull();
     const empty = encodeBundle({ ...bundle, files: [] });
     expect(decodeBundle(empty.bundle, empty.sha256)).toBeNull();
+    const badHead = encodeBundle({ ...bundle, revision: { pullNumber: 30, head: "main" } });
+    expect(decodeBundle(badHead.bundle, badHead.sha256)).toBeNull();
   });
 });
 

@@ -69,6 +69,55 @@ export interface GitHubClient {
   latestLabelEvent(number: number, label: string): Promise<LabelEvent | null>;
 }
 
+/** A pull request, as the agents need it. */
+export interface Pull {
+  number: number;
+  state: string;
+  user: Account | null;
+  headRef: string;
+  headSha: string;
+  /** owner/name of the head repository ("" if it was deleted). */
+  headRepo: string;
+  baseRef: string;
+}
+
+/** A submitted review's summary (reviews have no edit time). */
+export interface PullReview {
+  id: number;
+  user: Account | null;
+  body: string;
+  submittedAt: string;
+}
+
+/** An inline review comment on a line of the diff. */
+export interface ReviewComment {
+  id: number;
+  user: Account | null;
+  body: string;
+  path: string;
+  line: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A completed or running workflow run. */
+export interface WorkflowRun {
+  id: number;
+  status: string;
+  conclusion: string;
+  /** owner/name the run's commit came from (forks can reuse branch names). */
+  headRepo: string;
+}
+
+/** Pull request reads, used by the revision and circuit-breaker jobs. */
+export interface PullClient {
+  getPull(number: number): Promise<Pull>;
+  listReviews(number: number): Promise<PullReview[]>;
+  listReviewComments(number: number): Promise<ReviewComment[]>;
+  /** The latest runs of one workflow for pull request events on `branch`, newest first. */
+  latestWorkflowRuns(workflowId: number, branch: string): Promise<WorkflowRun[]>;
+}
+
 type Raw = Record<string, unknown>;
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -94,7 +143,7 @@ export function createGitHubClient(
   repo: string,
   token: string,
   fetchImpl: typeof fetch = (...args) => fetch(...args),
-): GitHubClient {
+): GitHubClient & PullClient {
   if (!REPO.test(repo)) throw new Error("GITHUB_REPOSITORY must look like owner/name");
 
   /**
@@ -141,6 +190,20 @@ export function createGitHubClient(
   const done = async (response: Response) => {
     await response.body?.cancel().catch(() => {});
   };
+
+  /** Every item of a paged list, mapped; items without a numeric id are skipped. */
+  async function listAll<T>(operation: string, path: string, map: (item: Raw) => T): Promise<T[]> {
+    const items: T[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const batch = (await (
+        await call(operation, `${path}?per_page=100&page=${page}`)
+      ).json()) as unknown;
+      if (!Array.isArray(batch)) throw new Error("GitHub returned a non-list");
+      for (const item of batch as Raw[]) if (typeof item?.id === "number") items.push(map(item));
+      if (batch.length < 100) return items;
+    }
+    throw new Error(`too many items to read safely (${operation})`);
+  }
 
   return {
     async getIssue(number) {
@@ -245,6 +308,60 @@ export function createGitHubClient(
       }
       const raw = (await response.json()) as Raw;
       return text(raw.role_name);
+    },
+
+    async getPull(number) {
+      const raw = (await (await call("pulls.get", `/pulls/${number}`)).json()) as Raw;
+      const head = (raw.head ?? {}) as Raw;
+      const base = (raw.base ?? {}) as Raw;
+      return {
+        number: typeof raw.number === "number" ? raw.number : number,
+        state: text(raw.state),
+        user: account(raw.user),
+        headRef: text(head.ref),
+        headSha: text(head.sha),
+        headRepo: text((head.repo as Raw | null | undefined)?.full_name),
+        baseRef: text(base.ref),
+      };
+    },
+
+    listReviews(number) {
+      return listAll("pulls.listReviews", `/pulls/${number}/reviews`, (item) => ({
+        id: item.id as number,
+        user: account(item.user),
+        body: text(item.body),
+        submittedAt: text(item.submitted_at),
+      }));
+    },
+
+    listReviewComments(number) {
+      return listAll("pulls.listReviewComments", `/pulls/${number}/comments`, (item) => ({
+        id: item.id as number,
+        user: account(item.user),
+        body: text(item.body),
+        path: text(item.path),
+        line: typeof item.line === "number" ? item.line : null,
+        createdAt: text(item.created_at),
+        updatedAt: text(item.updated_at),
+      }));
+    },
+
+    async latestWorkflowRuns(workflowId, branch) {
+      const raw = (await (
+        await call(
+          "actions.listWorkflowRuns",
+          `/actions/workflows/${workflowId}/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=20`,
+        )
+      ).json()) as Raw;
+      const runs = Array.isArray(raw.workflow_runs) ? (raw.workflow_runs as Raw[]) : [];
+      return runs
+        .filter((run) => typeof run?.id === "number")
+        .map((run) => ({
+          id: run.id as number,
+          status: text(run.status),
+          conclusion: text(run.conclusion),
+          headRepo: text((run.head_repository as Raw | null | undefined)?.full_name),
+        }));
     },
 
     async removeLabel(number, label) {

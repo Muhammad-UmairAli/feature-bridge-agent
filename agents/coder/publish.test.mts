@@ -9,6 +9,8 @@ import {
   publishDemo,
   publishProblems,
   pullBody,
+  pushRevision,
+  revisionMessage,
 } from "./publish.mts";
 import { loaderTemplate, pageTemplate } from "./template.mts";
 
@@ -226,5 +228,109 @@ describe("publishDemo", () => {
     const gh = github({ "POST /git/commits": () => new Response("", { status: 422 }) });
     const error = await publishDemo("fake-token", input, gh.fetchMock).catch((e: unknown) => e);
     expect((error as GitHubApiError).message).toBe("GitHub git.createCommit failed with 422");
+  });
+});
+
+describe("pushRevision", () => {
+  const HEAD = "e".repeat(40);
+  const NEXT = "f".repeat(40);
+  const LISTING = `GET /contents/src/app/demos/${SLUG}?ref=${HEAD}`;
+  const revision = { ...input, head: HEAD };
+  const tip = (sha: string) => () => Response.json({ object: { sha } });
+  const base = {
+    [`GET /git/ref/heads/${SLUG}`]: tip(HEAD),
+    [`GET /git/commits/${HEAD}`]: () => Response.json({ tree: { sha: TREE } }),
+    [LISTING]: () =>
+      Response.json([
+        { path: `${dir}page.tsx`, type: "file" },
+        { path: `${dir}demo.tsx`, type: "file" },
+        { path: `${dir}old-helper.ts`, type: "file" },
+        { path: `${dir}nested`, type: "dir" },
+        { path: "src/app/page.tsx", type: "file" },
+      ]),
+    "POST /git/commits": () => Response.json({ sha: NEXT }),
+    [`PATCH /git/refs/heads/${SLUG}`]: () => Response.json({ object: { sha: NEXT } }),
+  };
+
+  it("adds one commit on the reviewed head, deleting demo files left out", async () => {
+    const { fetchMock, calls } = github(base);
+    expect(await pushRevision("token", revision, fetchMock)).toBe(NEXT);
+    const tree = calls.find((call) => call.path === "/git/trees")?.body as {
+      base_tree: string;
+      tree: { path: string; sha?: null; content?: string }[];
+    };
+    expect(tree.base_tree).toBe(TREE);
+    expect(tree.tree.map((entry) => entry.path)).toEqual([
+      ...files.map((f) => f.path),
+      `${dir}old-helper.ts`,
+    ]);
+    expect(tree.tree.at(-1)).toEqual({
+      path: `${dir}old-helper.ts`,
+      mode: "100644",
+      type: "blob",
+      sha: null,
+    });
+    expect(calls.find((call) => call.path === "/git/commits")?.body).toEqual({
+      message: revisionMessage(7),
+      tree: NEW_TREE,
+      parents: [HEAD],
+    });
+    expect(calls.at(-1)).toEqual({
+      method: "PATCH",
+      path: `/git/refs/heads/${SLUG}`,
+      body: { sha: NEXT, force: false },
+    });
+  });
+
+  it("pushes nothing when the files are unchanged", async () => {
+    const { fetchMock, calls } = github({
+      ...base,
+      "POST /git/trees": () => Response.json({ sha: TREE }),
+    });
+    await expect(pushRevision("token", revision, fetchMock)).rejects.toMatchObject({
+      reason: "no_changes",
+    });
+    expect(calls.some((call) => call.path === "/git/commits")).toBe(false);
+  });
+
+  it("pushes nothing when the branch has moved", async () => {
+    const { fetchMock, calls } = github({ ...base, [`GET /git/ref/heads/${SLUG}`]: tip(COMMIT) });
+    await expect(pushRevision("token", revision, fetchMock)).rejects.toMatchObject({
+      reason: "branch_moved",
+    });
+    expect(calls.some((call) => call.method !== "GET")).toBe(false);
+  });
+
+  it("tells a lost update response from a branch that moved meanwhile", async () => {
+    const failed = () => new Response("", { status: 422 });
+    const lost = github({
+      ...base,
+      [`PATCH /git/refs/heads/${SLUG}`]: failed,
+      [`GET /git/ref/heads/${SLUG}`]: [tip(HEAD), tip(NEXT)],
+    });
+    expect(await pushRevision("token", revision, lost.fetchMock)).toBe(NEXT);
+    const moved = github({
+      ...base,
+      [`PATCH /git/refs/heads/${SLUG}`]: failed,
+      [`GET /git/ref/heads/${SLUG}`]: [tip(HEAD), tip(COMMIT)],
+    });
+    await expect(pushRevision("token", revision, moved.fetchMock)).rejects.toBeInstanceOf(
+      PublishRefused,
+    );
+    const failing = github({ ...base, [`PATCH /git/refs/heads/${SLUG}`]: failed });
+    await expect(pushRevision("token", revision, failing.fetchMock)).rejects.toBeInstanceOf(
+      GitHubApiError,
+    );
+  });
+
+  it("refuses invalid files or a bad head without any call", async () => {
+    const { fetchMock } = github(base);
+    await expect(
+      pushRevision("token", { ...revision, files: files.slice(0, 2) }, fetchMock),
+    ).rejects.toMatchObject({ reason: "invalid_files" });
+    await expect(
+      pushRevision("token", { ...revision, head: "abc" }, fetchMock),
+    ).rejects.toMatchObject({ reason: "invalid_files" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

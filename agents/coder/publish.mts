@@ -6,10 +6,15 @@
  * request (pushes made with the workflow's own token wouldn't trigger them).
  *
  * The files are checked again here (this is the last step before anything is
- * public). Nothing is ever force-updated or deleted: an existing branch, pull
- * request or demo stops the run. Within a run, a lost response is recovered by
- * looking again (the branch points at this exact commit; the pull request is
- * listed); otherwise a maintainer takes over.
+ * public). Nothing is ever force-updated: an existing branch, pull request or
+ * demo stops the run. Within a run, a lost response is recovered by looking
+ * again (the branch points at this exact commit; the pull request is listed);
+ * otherwise a maintainer takes over.
+ *
+ * A revision (`pushRevision`) adds one commit on top of exactly the commit
+ * that was reviewed, replacing the demo's files with the new set (files the
+ * model left out are deleted from the demo folder); if the branch has moved,
+ * nothing is pushed.
  */
 import { GitHubApiError } from "../lib/github.mts";
 import { type GeneratedFile, validateFiles } from "./files.mts";
@@ -35,7 +40,13 @@ export interface Published {
 }
 
 export class PublishRefused extends Error {
-  readonly reason: "branch_exists" | "pull_exists" | "folder_exists" | "invalid_files";
+  readonly reason:
+    | "branch_exists"
+    | "pull_exists"
+    | "folder_exists"
+    | "invalid_files"
+    | "branch_moved"
+    | "no_changes";
   readonly problems: string[];
 
   constructor(reason: PublishRefused["reason"], problems: string[] = []) {
@@ -62,6 +73,8 @@ type Fetch = typeof fetch;
 /** Fixed commit and pull request text: nothing from the model or the request. */
 export const commitMessage = (issueNumber: number) =>
   `feat(demos): build request #${issueNumber}\n\nBuilt by the coding agent from the approved plan.`;
+export const revisionMessage = (issueNumber: number) =>
+  `feat(demos): revise request #${issueNumber}\n\nRevised by the coding agent after review.`;
 export const pullTitle = (issueNumber: number) => `Demo for request #${issueNumber}`;
 export const pullBody = (issueNumber: number, slug: string) =>
   [
@@ -93,16 +106,8 @@ export function publishProblems(input: PublishInput): string[] {
   return problems;
 }
 
-export async function publishDemo(
-  token: string,
-  input: PublishInput,
-  fetchImpl: Fetch = (...args) => fetch(...args),
-): Promise<Published> {
-  const problems = publishProblems(input);
-  if (problems.length > 0) throw new PublishRefused("invalid_files", problems);
-  const { repo, issueNumber, slug, files } = input;
-  const branch = slug;
-
+/** REST calls with the agent App's token. Errors carry the operation and status only. */
+function api(token: string, repo: string, fetchImpl: Fetch) {
   async function call(
     operation: string,
     method: string,
@@ -152,6 +157,20 @@ export async function publishDemo(
       throw new GitHubApiError(operation, 0);
     return value;
   };
+  return { call, get, sha };
+}
+
+export async function publishDemo(
+  token: string,
+  input: PublishInput,
+  fetchImpl: Fetch = (...args) => fetch(...args),
+): Promise<Published> {
+  const problems = publishProblems(input);
+  if (problems.length > 0) throw new PublishRefused("invalid_files", problems);
+  const { repo, issueNumber, slug, files } = input;
+  const branch = slug;
+
+  const { call, get, sha } = api(token, repo, fetchImpl);
   const owner = repo.split("/")[0];
   const findPull = async () => {
     const { data } = await call(
@@ -238,4 +257,79 @@ export async function publishDemo(
     if (found) return { branch, commitSha, pullNumber: found.number, pullUrl: found.url };
     throw new PublishIncomplete(branch);
   }
+}
+
+export interface RevisionInput extends PublishInput {
+  /** The commit that was reviewed: the new commit's parent and the branch's expected tip. */
+  head: string;
+}
+
+/** One commit on top of `head` with exactly the new demo files; returns its id. */
+export async function pushRevision(
+  token: string,
+  input: RevisionInput,
+  fetchImpl: Fetch = (...args) => fetch(...args),
+): Promise<string> {
+  const problems = publishProblems(input);
+  if (!/^[0-9a-f]{40}$/.test(input.head)) problems.push("invalid head commit");
+  if (problems.length > 0) throw new PublishRefused("invalid_files", problems);
+  const { repo, issueNumber, slug, files, head } = input;
+  const branch = slug;
+  const dir = `src/app/demos/${slug}/`;
+  const { call, get, sha } = api(token, repo, fetchImpl);
+
+  const tip = await call("git.getBranchRef", "GET", `/git/ref/heads/${branch}`);
+  if (get(tip.data, "object", "sha") !== head) throw new PublishRefused("branch_moved");
+  const headCommit = await call("git.getCommit", "GET", `/git/commits/${head}`);
+  const headTree = sha(get(headCommit.data, "tree", "sha"), "git.getCommit");
+  const listing = await call(
+    "repos.getContent",
+    "GET",
+    `/contents/${dir.slice(0, -1)}?ref=${head}`,
+  );
+  if (!Array.isArray(listing.data)) throw new GitHubApiError("repos.getContent", 0);
+  const kept = new Set(files.map((file) => file.path));
+  const removed = listing.data
+    .filter((entry) => get(entry, "type") === "file")
+    .map((entry) => get(entry, "path"))
+    .filter((path): path is string => typeof path === "string" && path.startsWith(dir))
+    .filter((path) => !kept.has(path));
+
+  const tree = await call("git.createTree", "POST", "/git/trees", {
+    base_tree: headTree,
+    tree: [
+      ...files.map((file) => ({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        content: file.content,
+      })),
+      ...removed.map((path) => ({ path, mode: "100644", type: "blob", sha: null })),
+    ],
+  });
+  const newTree = sha(get(tree.data, "sha"), "git.createTree");
+  // An unchanged demo would only re-run CI and the paid review.
+  if (newTree === headTree) throw new PublishRefused("no_changes");
+  const commit = await call("git.createCommit", "POST", "/git/commits", {
+    message: revisionMessage(issueNumber),
+    tree: newTree,
+    parents: [head],
+  });
+  const commitSha = sha(get(commit.data, "sha"), "git.createCommit");
+
+  try {
+    // Not forced: GitHub refuses unless this is a fast-forward from the tip.
+    await call("git.updateRef", "PATCH", `/git/refs/heads/${branch}`, {
+      sha: commitSha,
+      force: false,
+    });
+  } catch (error) {
+    // The response may have been lost after the update, or the branch moved.
+    const ref = await call("git.getBranchRef", "GET", `/git/ref/heads/${branch}`);
+    const at = get(ref.data, "object", "sha");
+    if (at === commitSha) return commitSha;
+    if (at !== head) throw new PublishRefused("branch_moved");
+    throw error;
+  }
+  return commitSha;
 }
