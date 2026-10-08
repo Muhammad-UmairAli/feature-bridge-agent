@@ -105,27 +105,41 @@ export async function checkPullRequest(
   const pathProblems = checkChanges(changes, slug);
   problems.push(...pathProblems);
 
-  // Contents of every file version the pull request adds, if its path is allowed.
-  const blobs = new Map<string, string>();
-  for (const change of changes) {
-    if ((change.status === "A" || change.status === "M") && /^[0-9a-f]{40}$/.test(change.newBlob)) {
-      if (!pathProblems.some((p) => p.startsWith(shown(change.path))))
-        blobs.set(change.newBlob, change.path);
-    }
-  }
+  // Every file version the pull request adds at an allowed path. Sizes count
+  // once per added path and version (identical files still add up); contents
+  // are read once per blob.
+  const added = changes.filter(
+    (change) =>
+      (change.status === "A" || change.status === "M") &&
+      /^[0-9a-f]{40}$/.test(change.newBlob) &&
+      !pathProblems.some((p) => p.startsWith(shown(change.path))),
+  );
+  const sizes = new Map<string, number>();
   let total = 0;
-  for (const [blob, path] of blobs) {
-    const size = Number((await git.text(["cat-file", "-s", blob])).trim());
-    total += size;
-    if (size > 0 && total > MAX_TOTAL_BYTES) {
-      problems.push(`the pull request adds more than ${MAX_TOTAL_BYTES} bytes of files`);
-      break;
+  for (const change of added) {
+    if (!sizes.has(change.newBlob)) {
+      sizes.set(
+        change.newBlob,
+        Number((await git.text(["cat-file", "-s", change.newBlob])).trim()),
+      );
     }
+    total += sizes.get(change.newBlob) ?? 0;
+  }
+  if (total > MAX_TOTAL_BYTES) {
+    problems.push(`the pull request adds more than ${MAX_TOTAL_BYTES} bytes of files`);
+  }
+  const read = new Set<string>();
+  for (const change of added) {
+    if (read.has(change.newBlob)) continue;
+    read.add(change.newBlob);
+    const size = sizes.get(change.newBlob) ?? 0;
     if (size > MAX_FILE_BYTES) {
-      problems.push(`${shown(path)}: larger than ${MAX_FILE_BYTES} bytes`);
+      problems.push(`${shown(change.path)}: larger than ${MAX_FILE_BYTES} bytes`);
       continue;
     }
-    problems.push(...checkContent(path, await git.bytes(["cat-file", "blob", blob])));
+    problems.push(
+      ...checkContent(change.path, await git.bytes(["cat-file", "blob", change.newBlob])),
+    );
   }
   return { skipped: false, checked: changes.length, problems };
 }

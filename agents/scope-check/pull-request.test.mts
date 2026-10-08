@@ -100,6 +100,18 @@ describe("checkPullRequest", () => {
     );
   });
 
+  it("counts identical files toward the total size", async () => {
+    const base = git("rev-parse", "HEAD");
+    git("checkout", "-q", "-b", SLUG);
+    write(`${dir}page.tsx`);
+    const big = `export const data = "${"x".repeat(90_000)}";\n`;
+    for (let i = 0; i < 12; i += 1) write(`${dir}copy-${i}.ts`, big);
+    const head = commit("many copies");
+    expect((await check(base, head)).problems).toEqual([
+      "the pull request adds more than 1000000 bytes of files",
+    ]);
+  });
+
   it("refuses merge commits", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
