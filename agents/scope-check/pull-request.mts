@@ -89,6 +89,15 @@ export async function checkPullRequest(
   ]);
   if (existing.trim()) problems.push(`src/app/demos/${slug}/ already exists on the base branch`);
 
+  // The pull request must leave a demo behind: its page at the head.
+  const page = await git.text([
+    "ls-tree",
+    "--name-only",
+    headSha,
+    `src/app/demos/${slug}/page.tsx`,
+  ]);
+  if (!page.trim()) problems.push(`src/app/demos/${slug}/page.tsx is missing at the head`);
+
   const changes = parseRawLog(
     await git.text([
       "log",

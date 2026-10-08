@@ -112,6 +112,18 @@ describe("checkPullRequest", () => {
     ]);
   });
 
+  it("refuses a branch that leaves no demo page at the head", async () => {
+    const base = git("rev-parse", "HEAD");
+    git("checkout", "-q", "-b", SLUG);
+    write(`${dir}page.tsx`);
+    commit("add page");
+    git("rm", "-q", `${dir}page.tsx`);
+    const head = commit("remove it again");
+    expect((await check(base, head)).problems).toEqual([
+      `src/app/demos/${SLUG}/page.tsx is missing at the head`,
+    ]);
+  });
+
   it("refuses merge commits", async () => {
     const base = git("rev-parse", "HEAD");
     git("checkout", "-q", "-b", SLUG);
