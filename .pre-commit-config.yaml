@@ -1,0 +1,50 @@
+# Pre-commit hooks. One-time setup per clone:
+#   corepack enable pnpm && pnpm install   # the Prettier hook uses the project's Prettier
+#   pipx install pre-commit                # or: uv tool install pre-commit
+#   pre-commit install
+# CI runs the same hooks on every pull request. Fix failures and re-commit;
+# don't bypass with --no-verify.
+
+repos:
+  # Standard hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Markdown trailing double-spaces are line breaks; keep them.
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # pnpm's lockfile contains multiple YAML documents.
+        args: [--allow-multiple-documents]
+      - id: check-json
+        # These allow comments (JSONC), which strict JSON parsing rejects.
+        exclude: ^(\.vscode/|tsconfig.*\.json$)
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048, --enforce-all]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Formatting with the project's own pinned Prettier (run `pnpm install` first)
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: pnpm exec prettier --write --ignore-unknown
+        language: system
+        # Prettier skips unknown types and honors .prettierignore for explicit paths.
+        types: [text]
+
+  # GitHub Actions workflow lint
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+
+  # Secret scanning: blocks commits that contain credentials or tokens
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks

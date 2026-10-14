@@ -1,0 +1,17 @@
+# The maintainer owns everything by default. The last matching rule wins, so
+# this catch-all must stay first. Enforced once branch protection requires
+# code owner review.
+*                         @Muhammad-UmairAli
+
+# Explicitly sensitive paths (documentation; already covered above):
+# automation, agent guidance and scripts, dependencies, repo policy.
+/.github/                 @Muhammad-UmairAli
+/AGENTS.md                @Muhammad-UmairAli
+/agents/                  @Muhammad-UmairAli
+/src/lib/                 @Muhammad-UmairAli
+/.pre-commit-config.yaml  @Muhammad-UmairAli
+/package.json             @Muhammad-UmairAli
+/pnpm-lock.yaml           @Muhammad-UmairAli
+/pnpm-workspace.yaml      @Muhammad-UmairAli
+/.gitleaks.toml           @Muhammad-UmairAli
+/.gitleaksignore          @Muhammad-UmairAli

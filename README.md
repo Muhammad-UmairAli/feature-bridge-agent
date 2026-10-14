@@ -2,4 +2,175 @@
 
 Submit a feature request, review an AI-generated plan, and get a tested, reviewed preview of the feature.
 
-Setup and usage docs are coming soon.
+> **Status: early development.** The app foundation, tooling and CI are in place. The request form, agents and deployments are being built next, so most of the flow below isn't live yet.
+
+## How it works
+
+1. Anyone describes a feature in a public web form (no login), optionally with a screenshot.
+2. The request becomes a GitHub Issue, and a planning agent comments with an implementation plan and the files it would change.
+3. A maintainer on the approver allowlist applies the `approved-by-human` label.
+4. A coding agent implements the plan inside the demo area (`src/app/demos`), writes unit tests, and opens a pull request. An automated review runs and a preview deployment is published.
+5. A human reviews and merges. Agents never merge.
+
+Submissions are public. Don't enter confidential information, personal data or secrets.
+
+## Requirements
+
+- Node.js 24 (see `.nvmrc`)
+- pnpm 12, via Corepack: `corepack enable pnpm`
+- A POSIX shell for the `pnpm` scripts (macOS, Linux, WSL or Git Bash)
+- [pre-commit](https://pre-commit.com), for contributors (`pipx install pre-commit` or `uv tool install pre-commit`)
+
+## Getting started
+
+```bash
+git clone https://github.com/Muhammad-UmairAli/feature-bridge-agent.git
+cd feature-bridge-agent
+corepack enable pnpm
+pnpm install
+cp .env.example .env.local   # Cloudflare test keys for the bot check are noted inside
+pnpm dev                     # http://localhost:3000
+```
+
+## Scripts
+
+| Command                             | What it does                                             |
+| ----------------------------------- | -------------------------------------------------------- |
+| `pnpm dev`                          | Start the development server                             |
+| `pnpm build` / `pnpm start`         | Production build / serve it                              |
+| `pnpm test`                         | Run unit tests once (`pnpm test:watch`, `pnpm coverage`) |
+| `pnpm lint`                         | ESLint, including accessibility rules                    |
+| `pnpm typecheck`                    | TypeScript type check                                    |
+| `pnpm format` / `pnpm format:check` | Prettier on every file git would commit                  |
+
+## Configuration
+
+Nothing secret is committed. On a fork, the agent automations stay off until its owner adds their own values below (see "Running your own copy"). Items marked _planned_ arrive with later changes, and their names may still change. For local development, put Vercel values in `.env.local` (see `.env.example`).
+
+Set sensitive Vercel values for the **Production** environment only, never Preview: preview deployments build code from pull requests, including agent-written ones.
+
+| Name                             | Kind                  | Where it's set                                                                                       | Purpose                                                                                                                                                                                                                            |
+| -------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GH_APP_ID`                      | Variable              | Vercel (Production)                                                                                  | GitHub App the portal uses to create and read issues                                                                                                                                                                               |
+| `GH_APP_INSTALLATION_ID`         | Variable              | Vercel (Production)                                                                                  | That app's installation on the target repository                                                                                                                                                                                   |
+| `GH_APP_PRIVATE_KEY`             | Secret                | Vercel (Production)                                                                                  | The app's private key (PEM; paste as-is in Vercel)                                                                                                                                                                                 |
+| `REQUEST_TARGET_REPO`            | Variable              | Vercel (Production)                                                                                  | Repository that receives requests (`owner/name`)                                                                                                                                                                                   |
+| `NEXT_PUBLIC_BOT_CHECK_SITE_KEY` | Public key            | Vercel                                                                                               | Cloudflare Turnstile widget; built into the page, so public by design                                                                                                                                                              |
+| `BOT_CHECK_SECRET_KEY`           | Secret                | Vercel (Production)                                                                                  | Server-side Turnstile verification                                                                                                                                                                                                 |
+| `BOT_CHECK_HOSTNAMES`            | Variable              | Vercel (Production)                                                                                  | Comma-separated hostnames the widget may be served from. Required in production; elsewhere it defaults to the deployment or request host                                                                                           |
+| `BLOB_READ_WRITE_TOKEN`          | Secret                | Vercel (Production; created when a Blob store is connected) and the `screenshot-cleanup` environment | Screenshot storage, and the daily cleanup workflow (set it in both places); update both copies when rotated                                                                                                                        |
+| `DAILY_SUBMISSION_CAP`           | Variable              | Vercel (Production)                                                                                  | Max accepted submissions per UTC day (default 20, at most 1000); resets at midnight UTC                                                                                                                                            |
+| `PREVIEW_HOST_SUFFIXES`          | Variable (optional)   | Vercel (Production)                                                                                  | Host suffixes trusted for preview links on the tracking page (default `.vercel.app`)                                                                                                                                               |
+| `LLM_API_KEY`                    | Secret                | `agents` environment                                                                                 | Key for the model provider the agents use                                                                                                                                                                                          |
+| `LLM_BASE_URL`, `LLM_MODEL`      | Variables             | Actions variables                                                                                    | Any OpenAI-compatible endpoint (`https://` only, e.g. `https://openrouter.ai/api/v1`) and the model id to call                                                                                                                     |
+| `LLM_MAX_TOKENS_PER_REQUEST`     | Variable (optional)   | Actions variables                                                                                    | Token budget for one agent run (default 50,000); a run that reaches it stops for a human                                                                                                                                           |
+| `LLM_IMAGE_INPUT`                | Variable (optional)   | Actions variables                                                                                    | `on` sends request screenshots to the model (it must accept images); off by default                                                                                                                                                |
+| `PORTAL_BOT_LOGIN`               | Variable (repository) | Actions variables                                                                                    | The portal App's bot account (for example `your-app[bot]`, shown as the author of portal issues). Required for the agent workflows, which act only on its issues; the cleanup workflow also uses it to limit which issues it edits |
+| `AGENT_APP_LOGIN`                | Variable (repository) | Actions variables                                                                                    | The coding agent App's bot account (for example `your-coder[bot]`). The "Write scope" check accepts request pull requests only from it, and refuses them until it is set; the automated review runs only on its pull requests      |
+| `AGENT_APP_ID`                   | Variable              | `agent-app` environment                                                                              | The coding agent's GitHub App (separate from the portal App)                                                                                                                                                                       |
+| `AGENT_APP_PRIVATE_KEY`          | Secret                | `agent-app` environment                                                                              | That App's private key (PEM, pasted as-is)                                                                                                                                                                                         |
+| `APPROVER_ALLOWLIST`             | Variable (repository) | Actions variables                                                                                    | GitHub usernames (comma or space separated) whose change requests and approvals the agents act on. They also need triage access to the repository. Empty means nobody                                                              |
+| `CONTENT_POLICY_PATTERNS`        | Secret                | Actions secrets                                                                                      | Private patterns for the content policy check. Required for pull requests within your own repository; pull requests from forks skip the check with a warning                                                                       |
+
+### Running your own copy
+
+A fork or a fresh copy runs only CI, the write-scope check and the content policy check until you configure it. Each automation stays off until its switch is set, and an agent job that needs the model key or the App key stops before using it when a setting is missing, with one error naming each missing setting and where it goes (never a value). The check looks only for presence, not for valid values. Earlier jobs in the same workflow (such as the approval gate) can still comment or remove a label first:
+
+| Automation                                              | Switched on by                                    | Also needs                                                                                                                              |
+| ------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Planning and building ("Plan request", "Build request") | `PORTAL_BOT_LOGIN`                                | `LLM_*` and the `agents` environment; the agent App settings and `AGENT_APP_LOGIN` to publish; `APPROVER_ALLOWLIST` to accept approvals |
+| Automated review, revisions, CI breaker                 | `AGENT_APP_LOGIN`                                 | `LLM_*` and the `agents` environment (review, revisions); the agent App settings and `APPROVER_ALLOWLIST` (revisions)                   |
+| Screenshot cleanup                                      | `SCREENSHOT_CLEANUP` = `on`                       | `BLOB_READ_WRITE_TOKEN` in the `screenshot-cleanup` environment                                                                         |
+| Success metrics                                         | `PORTAL_BOT_LOGIN` and `AGENT_APP_LOGIN`          | Nothing else: it uses the workflow's read-only token and no secrets                                                                     |
+| Content policy                                          | Always on for pull requests within the repository | `CONTENT_POLICY_PATTERNS`; without it the check fails and says so. Pull requests from forks skip it with a warning                      |
+
+An empty `APPROVER_ALLOWLIST` means nobody's approval or change request is accepted: the label is removed again. Workflows that hold a key run from the base branch, and their jobs are skipped unless the pull request comes from this repository, is authored by the coding agent App and uses a `request-*` branch. They never run pull request code.
+
+### Success metrics
+
+The "Success metrics" workflow runs every Monday and on demand (Actions tab, "Run workflow", optionally with a number of days). It reads request issues, their agent pull requests, previews, CI runs and review verdicts, and writes a report to the run's summary:
+
+- Median time from request to preview, and from approval to preview, with the share within 15 minutes.
+- The share of previewed requests with no human-authored commit before the first preview.
+- The share of agent pull requests whose first commit passed CI and the automated review.
+
+The report contains counts and percentages only, never request text, and the workflow changes nothing. It reads the last 90 days by default, newest requests first, at most 100 requests and 500 GitHub calls per run (about half of the hourly allowance the workflow token shares with the agents), and makes no further calls after 12 minutes (a request in progress is dropped, so the report is always written). When a limit cuts the window short, or requests can't be read, the report says so and from which date it covers; the oldest requests are the ones left out. The run fails if a fifth or more of the requests can't be read. Requests with an agent pull request but no preview yet are listed in a note and are in neither M1 nor M2. The definitions are working assumptions, listed at the end of every report.
+
+GitHub switches off scheduled workflows in a public repository after 60 days without repository activity; re-enable it from the Actions tab if that happens.
+
+### Setting up the GitHub App
+
+The portal creates and reads request issues as a GitHub App, so no personal token is involved.
+
+1. Create a GitHub App (Settings → Developer settings → GitHub Apps → New). Webhooks aren't needed: turn them off.
+2. Repository permissions, nothing else:
+   - **Issues:** Read and write (create request issues, read their status)
+   - **Pull requests:** Read-only, and **Deployments:** Read-only (the tracking page shows linked pull requests and preview links)
+   - **Metadata:** Read-only (required by GitHub)
+3. Install the App with **Only select repositories**, choosing just the repository that receives requests. In that repository, create the `portal-request` label (GitHub drops labels it can't apply without an error).
+4. Generate a private key, then set `GH_APP_ID`, `GH_APP_INSTALLATION_ID` (from the installation's URL), `GH_APP_PRIVATE_KEY` and `REQUEST_TARGET_REPO`.
+
+Each call uses a short-lived installation token narrowed to that one repository and the single permission it needs.
+
+If GitHub times out after creating an issue, the visitor sees an error and a retry can create a duplicate; maintainers can close duplicates.
+
+### Setting up the planning agent
+
+When the portal creates a request issue, the "Plan request" workflow posts an implementation plan on it. Like every issue-triggered workflow, it runs from the default branch, so it goes live when it reaches `main`.
+
+1. Create the `agents` environment: Settings → Environments → New environment → Deployment branches and tags → Selected branches and tags → add `main` (which must stay the default branch). Don't add required reviewers, or every request would wait for one. If GitHub already created the environment on a first run, add the branch rule.
+2. Store `LLM_API_KEY` as a secret in that environment, and make sure no repository- or organization-level secret has the same name, so only the planning, demo-generation and automated review steps can read it (all run on Node's standard library alone).
+3. Set `LLM_BASE_URL`, `LLM_MODEL` and `PORTAL_BOT_LOGIN` as repository variables (not environment variables), plus `LLM_MAX_TOKENS_PER_REQUEST` and `LLM_IMAGE_INPUT` if you want to change their defaults. These values appear in the public run logs; the key doesn't.
+4. Create the labels: `portal-request` (see the GitHub App setup), `planning`, `plan-ready`, `changes-requested`, `approved-by-human`, `needs-human-triage` and `escalated-to-human`.
+5. Use a key dedicated to this project and set a spending limit at the provider. Anyone can submit a request, and each one costs a planning run: at most `DAILY_SUBMISSION_CAP × LLM_MAX_TOKENS_PER_REQUEST` tokens a day for first plans (20 × 50,000 = 1,000,000 with the defaults), plus one revision per request that a maintainer sends back, a build (up to two model calls) for each approval, an automated review (up to two model calls) for each commit pushed to a request pull request (and each re-run), one revision (up to two model calls) per pull request, and any runs you start by hand.
+6. Check the provider's data retention and training settings: it receives the request text, `AGENTS.md`, the list of files under `src/`, the shared UI sources, approved plans, generated demos, maintainers' review feedback on agent pull requests and, with image input on, the screenshot.
+
+To ask for a better plan, a maintainer on `APPROVER_ALLOWLIST` (with triage access or higher; custom repository roles don't count) first comments with what to change, then applies `changes-requested`. The agent posts a revised plan using only comments from allowlisted maintainers posted before the label and not edited since. A plan can be revised once: the next `changes-requested` (or a failed revision) hands the request to a maintainer (`needs-human-triage`). The label is removed again if anyone else applies it, and other people's comments are ignored.
+
+To approve a plan, a maintainer on `APPROVER_ALLOWLIST` applies `approved-by-human` while the request shows `plan-ready`. The "Build request" workflow first checks the approval against the issue's current state (who applied it, the status labels, and that the plan is the latest, unedited one made from the current request text and within the demo-area rules); anything else removes the label with an explanation. If the check fails or is cancelled, the label is removed too; apply it again to retry.
+
+Once an approval is accepted, the same workflow builds it in jobs that never share secrets. "Generate demo" (in the `agents` environment, with the model key) checks the approval again, records on the request that this approval is being built (so it builds once), and generates and checks the demo. "Check demo" (no secrets) lints the files with the repository's rules. "Open pull request" (in the `agent-app` environment, with the coding agent App key) checks the approval and the files again and opens the pull request. No job runs the generated code; CI runs its tests on the pull request without secrets. The generated files pass between jobs as a job output, so they appear in the run logs. Re-running a build from the Actions tab does nothing: if a build stops, the request gets `escalated-to-human` and a short comment; to retry, remove that label (and `approved-by-human` if it is still there), delete any `request-<number>` branch it left, then apply `approved-by-human` again. Withdrawing the approval while a build runs cancels it quietly.
+
+The workflow does nothing on forks or until `PORTAL_BOT_LOGIN` is set. If a run fails (including missing settings), is cancelled or times out before the request has a status, the request gets `needs-human-triage`. To retry after fixing the cause, remove that label and re-run the failed run from the Actions tab (for a revision, apply `changes-requested` again instead: a revision that can't start for missing settings loses that label, and re-running its old run does nothing). Failed runs are started by the App, so GitHub may not email anyone: watch the repository's issues, or check the Actions tab.
+
+### Setting up the coding agent App
+
+The coding agent commits demos and opens pull requests as its own GitHub App, so CI and preview deployments run on them (pushes made with the workflow's own token wouldn't trigger them).
+
+**Before storing the key**, protect the repository, because the App can write contents: on `main`, require a pull request with at least one approval, code-owner review and approval of the last push, and require the "Write scope" and CI checks; add a ruleset that lets the App create branches only under `request-*`; add a tag ruleset; turn off auto-merge; never list the App as a bypass actor.
+
+1. Create a second GitHub App: webhooks off, "Only on this account", no organization or account permissions, and only these repository permissions: **Contents:** Read and write, **Pull requests:** Read and write, **Metadata:** Read-only. The agent refuses to run if the App's installation holds anything else (Workflows above all) or covers more than selected repositories.
+2. Install it with **Only select repositories**, choosing this repository.
+3. Create a GitHub Environment named `agent-app` limited to `main`. Set `AGENT_APP_ID` and the secret `AGENT_APP_PRIVATE_KEY` there (paste the downloaded PEM as-is, then delete the file; make sure no repository- or organization-level secret has the same name). Set the repository variable `AGENT_APP_LOGIN` to the App's bot account (for example `your-coder[bot]`).
+
+Each build asks for a token limited to this repository with exactly contents and pull request write access, masks it in the logs, creates branch `request-<number>` from `main` with one commit, opens a pull request into `main`, and revokes the token. It never overwrites or deletes an existing branch, pull request or demo; if a run stops after pushing the branch, a maintainer opens or deletes it.
+
+The "Review request" workflow then reviews each commit pushed to a request pull request. It runs on `pull_request_target` (the base branch's code, in the `agents` environment, whose `main` rule covers it), only for pull requests opened by `AGENT_APP_LOGIN`, and reads the demo's files as git objects without checking out or running them. The model compares them with the approved plan and `AGENTS.md`, and the workflow posts one comment per commit with its findings and the coding agent's file checks, each inside a text fence. The review is advisory: it approves nothing, the reviewed files can steer the model, and findings wait for a maintainer, who can request changes. If it can't finish (no approved plan, unreadable files, model errors), the run fails, usually with a short comment saying why (not when it times out or is cancelled); re-run it from the Actions tab to retry.
+
+To ask the coding agent for changes, a maintainer on `APPROVER_ALLOWLIST` (triage access or higher) reviews the pull request (inline comments, a review summary or a comment saying what to change), then applies `changes-requested` to the pull request. The "Revise request" workflow checks who applied the label and collects feedback only from allowlisted maintainers, posted before the label and not edited since (quoted lines and hidden HTML are left out). It then revises the demo in the same separated jobs as a build and pushes one commit on top of the pull request's head as it was when the label was applied; if anyone pushed to the branch after that, nothing is pushed (so check the latest commit before applying the label). The agent revises a pull request once: the next `changes-requested` hands it to a maintainer (`escalated-to-human`), and so does any failed revision. Separately, the "CI breaker" workflow hands a request pull request over when CI fails on two runs in a row, after which the agent won't change it. Re-running a revision from the Actions tab does nothing; to retry after a failure, a maintainer takes over the branch.
+
+To rotate the key, generate a new one in the App settings, update the secret, then delete the old key. If the key may have leaked, delete it, suspend the installation (which ends its tokens) and check the audit log for branch, tag, release and merge activity.
+
+### Screenshots and takedowns
+
+Screenshots are public: they're re-encoded (removing metadata such as location), stored in Vercel Blob under random names, linked from the request issue, and deleted after 90 days by the daily "Clean up screenshots" workflow, which also removes orphaned uploads after 24 hours. Run it manually from the Actions tab (dry run by default) to preview changes.
+
+To turn the cleanup on: create a GitHub Environment named `screenshot-cleanup` limited to the `main` branch, store `BLOB_READ_WRITE_TOKEN` there (not as a repository secret), and set the repository variable `SCREENSHOT_CLEANUP` to `on`. Optionally set `PORTAL_BOT_LOGIN` to the App's bot login (for example `your-app[bot]`) so only its issues are edited. Submitters must confirm a screenshot can be published. Use a Blob store dedicated to screenshots, because the token can read and write the whole store.
+
+To take a screenshot down immediately:
+
+1. Delete the file from the Blob store (dashboard, or `del(url)` with the store token).
+2. Edit the request issue and replace the screenshot link with "removed".
+3. Browsers may keep a cached copy for up to an hour.
+
+## Contributing
+
+- When forking, include all branches (GitHub copies only `main` by default) and branch from `develop`. Open pull requests with `develop` as the base branch (GitHub defaults new PRs to `main`, so change the base). `main` only receives releases. Both branches are protected.
+- Set up once per clone: `corepack enable pnpm && pnpm install`, then `pre-commit install`. The hooks check formatting (with the project's Prettier) and workflow files, and scan for secrets.
+- CI runs lint, typecheck, tests, build, the pre-commit hooks, a secret scan and a content policy check on pull requests into `develop` and `main`.
+- Agent-written demos (`request-*` branches) are untrusted code: review them before running them locally, or run them in a sandbox. CI runs their tests without secrets.
+- Commits in this public repo show the author's name and email. Use a personal address or your GitHub noreply address (`<id>+<username>@users.noreply.github.com`), set it with `git config user.email`.
+
+## License
+
+[MIT](LICENSE)
