@@ -61,7 +61,7 @@ If a request can't be built under these rules, say so in the plan instead of wor
 - **UI:** import shared primitives from `@/components/ui/*` and helpers from `@/lib/utils`; don't modify them.
 - **Styling:** Tailwind utilities with the theme tokens (`bg-background`, `text-foreground`, `text-muted-foreground`, `bg-primary`, `text-primary-foreground`, `border-border`, `ring-ring`). Don't hard-code colors; both the Dark and Light themes must stay readable.
 - **Accessibility:** WCAG 2.1 AA basics. One `<h1>` per page (the layout already provides `<main>`), labelled form controls, keyboard-operable controls, visible focus, sufficient contrast.
-- **Tests:** every demo ships with tests. Test behavior through roles and labels (`getByRole`, `getByLabelText`). React Testing Library can't render async server components, which is another reason to keep pages synchronous.
+- **Tests:** every demo ships with tests. Import `describe`, `expect` and `it` from `vitest` at the top of each test file: Vitest globals are not enabled. Test behavior through roles and labels (`getByRole`, `getByLabelText`). React Testing Library can't render async server components, which is another reason to keep pages synchronous.
 - **Types:** no `any`; keep logic in small, typed, pure functions.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org) (`feat: …`, `fix: …`, `test: …`).
 

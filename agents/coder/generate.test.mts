@@ -67,6 +67,26 @@ describe("buildMessages", () => {
     expect(system.content).not.toContain("This is a revision");
   });
 
+  it("tells the model to import describe, expect and it from vitest, in builds and revisions", () => {
+    for (const messages of [
+      buildMessages(input, "PLAN-test"),
+      buildMessages(
+        {
+          ...input,
+          revision: {
+            files: [{ path: `${dir}demo.tsx`, content: "export default function Demo() {}\n" }],
+            feedback: ["Review: Use a button."],
+          },
+        },
+        "PLAN-test",
+      ),
+    ]) {
+      const system = String(messages[0].content);
+      expect(system).toContain('import { describe, expect, it } from "vitest";');
+      expect(system).toContain("Vitest globals are not enabled");
+    }
+  });
+
   it("adds the current files and the feedback for a revision, each delimited", () => {
     const ids = ["x", "c1", "f1"];
     const [system, user] = buildMessages(
