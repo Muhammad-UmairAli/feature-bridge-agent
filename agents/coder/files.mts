@@ -55,7 +55,11 @@ export function parseFiles(reply: string): Parsed {
     const start = FILE_START.exec(marker);
     if (current) {
       if (marker === FILE_END) {
-        const body = unfence(current.lines).join("\n").replace(/\n*$/, "");
+        // Trailing spaces would fail the repository's whitespace hook.
+        const body = unfence(current.lines)
+          .map((line) => line.replace(/[ \t]+$/, ""))
+          .join("\n")
+          .replace(/\n*$/, "");
         files.push({ path: current.path, content: `${body}\n` });
         current = null;
       } else if (start || marker.startsWith("<<<FILE")) {
@@ -88,6 +92,27 @@ const TEST_IMPORTS = [/^vitest$/, /^@testing-library\/react$/];
 const OWN_FILE = /^\.\/([a-z0-9]+(?:-[a-z0-9]+)*(?:\.test)?)(?:\.tsx?)?$/;
 const NAVIGATION = new Set(["useRouter", "usePathname", "useSearchParams"]);
 /** The only `vi` helpers demo tests may use (no module mocking or loading). */
+/**
+ * Vitest names a test file can use, and what a use of each looks like. Vitest
+ * globals are not enabled, so every one that is used must be imported: a test
+ * that forgets fails CI (typecheck and tests), so it is sent back to the model
+ * here instead.
+ */
+const VITEST_USES: [string, RegExp][] = [
+  ["describe", /(?<![\w$.])describe\s*(?:\(\s*["'`]|\.\s*(?:each|skip|only|todo)\b)/],
+  ["it", /(?<![\w$.])it\s*(?:\(\s*["'`]|\.\s*(?:each|skip|only|todo)\b)/],
+  ["test", /(?<![\w$.])test\s*(?:\(\s*["'`]|\.\s*(?:each|skip|only|todo)\b)/],
+  [
+    "expect",
+    /(?<![\w$.])expect(?:\(|\.(?:any|anything|objectContaining|arrayContaining|stringContaining|stringMatching|assertions|hasAssertions|extend)\b)/,
+  ],
+  ["beforeEach", /(?<![\w$.])beforeEach\s*\(/],
+  ["afterEach", /(?<![\w$.])afterEach\s*\(/],
+  ["beforeAll", /(?<![\w$.])beforeAll\s*\(/],
+  ["afterAll", /(?<![\w$.])afterAll\s*\(/],
+  ["vi", /(?<![\w$.])vi\s*\.\s*\w/],
+];
+
 const VI_ALLOWED = new Set([
   "fn",
   "spyOn",
@@ -216,6 +241,26 @@ function checkFile(file: GeneratedFile, dir: string, slug: string, own: Set<stri
         problems.push(`${where}: uses vi.${match[1]} (tests may only use simple mocks and timers)`);
         break;
       }
+    }
+    const imported = new Set<string>();
+    for (const match of file.content.matchAll(IMPORT)) {
+      if (match[2] !== "vitest") continue;
+      const named = /^\{([^}]*)\}$/.exec((match[1] ?? "").trim())?.[1] ?? "";
+      for (const part of named.split(",")) {
+        const local = part
+          .trim()
+          .split(/\s+as\s+/)
+          .pop();
+        if (local) imported.add(local);
+      }
+    }
+    const missing = VITEST_USES.filter(
+      ([name, use]) => use.test(file.content) && !imported.has(name),
+    ).map(([name]) => name);
+    if (missing.length > 0) {
+      problems.push(
+        `${where}: uses ${missing.join(", ")} without importing it from "vitest" (Vitest globals are not enabled)`,
+      );
     }
   }
   if (name === DEMO_FILE) {

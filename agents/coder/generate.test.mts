@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { type ChatMessage, type ChatOptions, type LlmClient, LlmError } from "../lib/llm.mts";
-import { CANNOT_BUILD, FILE_END } from "./files.mts";
+import { CANNOT_BUILD, FILE_END, validateFiles } from "./files.mts";
 import { GenerationFailure, buildMessages, generateDemo } from "./generate.mts";
 import { loaderTemplate, pageTemplate } from "./template.mts";
 
@@ -65,6 +65,45 @@ describe("buildMessages", () => {
     expect(user.content).toContain(`<<<PLAN-test>>>\n${input.planText}\n<<<END-PLAN-test>>>`);
     expect(String(user.content).trimEnd().endsWith("rules in the system message.")).toBe(true);
     expect(system.content).not.toContain("This is a revision");
+  });
+
+  it("tells the model to import describe, expect and it from vitest, in builds and revisions", () => {
+    for (const messages of [
+      buildMessages(input, "PLAN-test"),
+      buildMessages(
+        {
+          ...input,
+          revision: {
+            files: [{ path: `${dir}demo.tsx`, content: "export default function Demo() {}\n" }],
+            feedback: ["Review: Use a button."],
+          },
+        },
+        "PLAN-test",
+      ),
+    ]) {
+      const system = String(messages[0].content);
+      expect(system).toContain('import { describe, expect, it } from "vitest";');
+      expect(system).toContain("Vitest globals are not enabled");
+    }
+  });
+
+  it("asks for an import line that the validator accepts", () => {
+    const [system] = buildMessages(input, "PLAN-test");
+    const line = /`(import \{ describe, expect, it \} from "vitest";)`/.exec(
+      String(system.content),
+    )?.[1];
+    expect(line).toBeDefined();
+    const demo = '"use client";\n\nexport default function Demo() {\n  return <p>Hi</p>;\n}\n';
+    const test = `${line}\n\ndescribe("Demo", () => {\n  it("renders", () => {\n    expect(1).toBe(1);\n  });\n});\n`;
+    expect(
+      validateFiles(
+        [
+          { path: `${dir}demo.tsx`, content: demo },
+          { path: `${dir}demo.test.tsx`, content: test },
+        ],
+        SLUG,
+      ),
+    ).toEqual([]);
   });
 
   it("adds the current files and the feedback for a revision, each delimited", () => {
