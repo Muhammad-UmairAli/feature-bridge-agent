@@ -223,7 +223,10 @@ export async function runGenerate(
     log("error", "build.failed", {
       issue: number,
       reason,
-      ...(error instanceof GenerationFailure ? { problems: error.problems.length } : {}),
+      ...(error instanceof GenerationFailure
+        ? // Fixed words and quoted paths only, as the check job already prints them.
+          { problems: error.problems.length, details: error.problems.slice(0, 5).join("; ") }
+        : {}),
       ...(llm ? { tokens: llm.tokensUsed } : {}),
     });
     await handOver(github, log, number, text);

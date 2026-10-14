@@ -522,6 +522,7 @@ Expected shape:
 | Model calls fail with 429 or the model disappears               | Free models are rate limited (daily and per-minute) and the free list changes. Switch `LLM_MODEL` (one variable); purchasing a small amount of credit raises the daily limit.         |
 | The daily cleanup workflow fails                                | `SCREENSHOT_CLEANUP` is `on` but `BLOB_READ_WRITE_TOKEN` is missing from the `screenshot-cleanup` environment. Add it, or remove the variable.                                        |
 | The build refuses an approval                                   | The approver is not on `APPROVER_ALLOWLIST`, lacks triage access, or the plan changed after it was posted. Read the comment the workflow leaves on the issue.                         |
+| A retried build fails at the last step with `pull_exists`       | A pull request for that request already exists, even a closed one. The build never reopens or overwrites it, so submit a new request.                                                 |
 | A secret was pasted into a chat, issue or log                   | Rotate it now (section 8).                                                                                                                                                            |
 
 ## 7. Cost, limits and privacy

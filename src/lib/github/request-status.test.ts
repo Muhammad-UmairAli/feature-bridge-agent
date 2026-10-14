@@ -172,6 +172,63 @@ describe("getRequestStatus", () => {
     }
   });
 
+  it("skips workflow environment records that have no URL and finds the preview behind them", async () => {
+    const fetchImpl = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: () =>
+        Response.json([
+          { id: 100, production_environment: false, creator: { type: "Bot" } },
+          { id: 99, production_environment: false, creator: { type: "Bot" } },
+        ]),
+      [`GET ${REPO}/deployments/100/statuses`]: () => Response.json([{ state: "success" }]),
+      [`GET ${REPO}/deployments/99/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: PREVIEW }]),
+    });
+    const view = await get(fetchImpl);
+    expect(view?.previewUrl).toBe(PREVIEW);
+    expect(view?.status).toBe("preview-ready");
+    expect(githubCalls(fetchImpl)).toHaveLength(5);
+  });
+
+  it("looks at no more than three deployments, so a page view stays at six calls", async () => {
+    const fetchImpl = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: () =>
+        Response.json(
+          [100, 99, 98, 97].map((id) => ({
+            id,
+            production_environment: false,
+            creator: { type: "Bot" },
+          })),
+        ),
+      [`GET ${REPO}/deployments/100/statuses`]: () => Response.json([{ state: "success" }]),
+      [`GET ${REPO}/deployments/99/statuses`]: () => Response.json([{ state: "success" }]),
+      [`GET ${REPO}/deployments/98/statuses`]: () => Response.json([{ state: "success" }]),
+      [`GET ${REPO}/deployments/97/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: PREVIEW }]),
+    });
+    const view = await get(fetchImpl);
+    expect(view?.previewUrl).toBeNull();
+    expect(githubCalls(fetchImpl)).toHaveLength(6);
+  });
+
+  it("skips production and non-bot deployments without spending a status call on them", async () => {
+    const fetchImpl = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: () =>
+        Response.json([
+          { id: 100, production_environment: true, creator: { type: "Bot" } },
+          { id: 99, production_environment: false, creator: { type: "User" } },
+          { id: 98, production_environment: false, creator: { type: "Bot" } },
+        ]),
+      [`GET ${REPO}/deployments/98/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: PREVIEW }]),
+    });
+    const view = await get(fetchImpl);
+    expect(view?.previewUrl).toBe(PREVIEW);
+    expect(githubCalls(fetchImpl)).toHaveLength(4);
+  });
+
   it("shows a merged PR as live without looking for a preview", async () => {
     const fetchImpl = routes({
       [`GET ${REPO}/issues/5`]: () => Response.json(issue({ state: "closed" })),

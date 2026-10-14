@@ -281,10 +281,17 @@ describe("runGenerate", () => {
   it("hands over when the files never pass, without echoing them", async () => {
     const gh = fakeGitHub();
     const bad = `<<<FILE ${dir}demo.tsx>>>\nfetch("/x?secret=1");\n${FILE_END}`;
-    expect(await runGenerate(settings, generateDeps(gh, fakeLlm(bad)))).toEqual({ kind: "failed" });
+    const deps = generateDeps(gh, fakeLlm(bad));
+    expect(await runGenerate(settings, deps)).toEqual({ kind: "failed" });
     const stopped = gh.comments.at(-1)?.body ?? "";
     expect(stopped).toContain("didn't pass the demo checks");
     expect(stopped).not.toContain("secret");
+    // The log names why in fixed words, without echoing the model's code.
+    const failed = vi.mocked(deps.log).mock.calls.find(([, event]) => event === "build.failed");
+    expect(failed?.[2]).toMatchObject({ reason: "invalid_files", problems: expect.any(Number) });
+    const details = JSON.stringify(failed?.[2]?.details);
+    expect(details).toContain("makes network calls");
+    expect(details).not.toContain("secret");
   });
 });
 

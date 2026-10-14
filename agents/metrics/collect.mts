@@ -218,9 +218,15 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
           "deployments.statuses",
           `/deployments/${deployment.id}/statuses`,
         );
+        // A preview has an environment URL; the records workflow jobs make in a
+        // GitHub environment do not, and must not be mistaken for it.
         const successes = statuses
           .filter(
-            (status) => status.state === "success" && Number.isFinite(time(status.created_at)),
+            (status) =>
+              status.state === "success" &&
+              typeof status.environment_url === "string" &&
+              status.environment_url !== "" &&
+              Number.isFinite(time(status.created_at)),
           )
           .sort((a, b) => time(a.created_at) - time(b.created_at));
         if (successes[0]) return { readyAt: text(successes[0].created_at), sha: commit.sha };
