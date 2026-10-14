@@ -99,7 +99,10 @@ function fakeGit(entries: Entry[]) {
 const demoFiles: Entry[] = [
   { path: `${dir}demo-loader.tsx`, content: "loader" },
   { path: `${dir}counter.ts`, content: "export const step = 1;\n" },
-  { path: `${dir}demo.test.tsx`, content: "it('counts', () => {});\n" },
+  {
+    path: `${dir}demo.test.tsx`,
+    content: "import { it } from \"vitest\";\n\nit('counts', () => {});\n",
+  },
   { path: `${dir}demo.tsx`, content: '"use client";\nexport default function Demo() {}\n' },
   { path: `${dir}page.tsx`, content: "page" },
 ];

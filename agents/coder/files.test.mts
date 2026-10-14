@@ -372,3 +372,49 @@ describe("validateFiles", () => {
     ).toContain("larger than 30000 bytes");
   });
 });
+
+describe("validateFiles: vitest imports", () => {
+  const body = `import { render, screen } from "@testing-library/react";\nimport Demo from "./demo";\n`;
+  const problemsFor = (content: string) => validateFiles(withTest(content), SLUG);
+
+  it("sends back a test that uses vitest names without importing them", () => {
+    const content = `${body}\ndescribe("Demo", () => {\n  it("renders", () => {\n    render(<Demo />);\n    expect(screen.getByRole("button")).toBeInTheDocument();\n  });\n});\n`;
+    expect(problemsFor(content)).toEqual([
+      `"${dir}demo.test.tsx": uses describe, it, expect without importing it from "vitest" (Vitest globals are not enabled)`,
+    ]);
+  });
+
+  it("names only what is missing", () => {
+    const content = `import { describe, it } from "vitest";\n${body}\ndescribe("Demo", () => {\n  it("renders", () => {\n    render(<Demo />);\n    expect(screen.getByRole("button")).toBeInTheDocument();\n  });\n});\n`;
+    expect(problemsFor(content)).toEqual([
+      `"${dir}demo.test.tsx": uses expect without importing it from "vitest" (Vitest globals are not enabled)`,
+    ]);
+  });
+
+  it("sends back vi and hooks used without an import", () => {
+    const content = `import { describe, expect, it } from "vitest";\n${body}\ndescribe("Demo", () => {\n  afterEach(() => vi.useRealTimers());\n  it("renders", () => {\n    vi.useFakeTimers();\n    render(<Demo />);\n    expect(screen.getByRole("button")).toBeInTheDocument();\n  });\n});\n`;
+    expect(problemsFor(content)).toEqual([
+      `"${dir}demo.test.tsx": uses afterEach, vi without importing it from "vitest" (Vitest globals are not enabled)`,
+    ]);
+  });
+
+  it("accepts hooks, test and renamed imports once they are imported", () => {
+    const content = `import { afterEach, beforeEach, describe as suite, expect, test, vi } from "vitest";\n${body}\nsuite("Demo", () => {\n  beforeEach(() => vi.useFakeTimers());\n  afterEach(() => vi.useRealTimers());\n  test("renders", () => {\n    render(<Demo />);\n    expect(screen.getByRole("button")).toBeInTheDocument();\n  });\n});\n`;
+    expect(problemsFor(content)).toEqual([]);
+  });
+
+  it("does not mistake prose for a use", () => {
+    const content = `import { describe, expect, it } from "vitest";\n${body}\n// We expect (maybe) the button to work, and test (really) it.\ndescribe("Demo", () => {\n  it("renders", () => {\n    render(<Demo />);\n    expect(screen.getByRole("button")).toBeInTheDocument();\n  });\n});\n`;
+    expect(problemsFor(content)).toEqual([]);
+  });
+});
+
+describe("parseFiles: whitespace", () => {
+  it("strips trailing spaces and tabs from every line, which the repository's hooks reject", () => {
+    const reply = [`<<<FILE ${dir}demo.tsx>>>`, "line 1  ", "\t", "line 3\t ", FILE_END].join("\n");
+    expect(parseFiles(reply)).toEqual({
+      kind: "files",
+      files: [{ path: `${dir}demo.tsx`, content: "line 1\n\nline 3\n" }],
+    });
+  });
+});
