@@ -119,6 +119,13 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      - name: Check configuration
+        env:
+          CONFIG_NEEDS: llm
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          HAS_LLM_API_KEY: ${{ secrets.LLM_API_KEY != '' }}
+        run: node agents/lib/check-config.mts
       - name: Fetch the reviewed commit (as data)
         env:
           HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
@@ -182,6 +189,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      - name: Check configuration
+        env:
+          CONFIG_NEEDS: app
+          AGENT_APP_ID: ${{ vars.AGENT_APP_ID }}
+          HAS_AGENT_APP_PRIVATE_KEY: ${{ secrets.AGENT_APP_PRIVATE_KEY != '' }}
+        run: node agents/lib/check-config.mts
       - name: Publish
         env:
           REVISE_STEP: publish

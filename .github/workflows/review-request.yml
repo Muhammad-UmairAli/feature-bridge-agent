@@ -57,6 +57,13 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      - name: Check configuration
+        env:
+          CONFIG_NEEDS: llm
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          HAS_LLM_API_KEY: ${{ secrets.LLM_API_KEY != '' }}
+        run: node agents/lib/check-config.mts
       # Exactly the commit this event is about; a newer push gets its own run.
       - name: Fetch the head commit (as data)
         env:
