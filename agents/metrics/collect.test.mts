@@ -48,10 +48,11 @@ function happyRoutes(): Routes {
       },
       { event: "labeled", label: { name: "plan-ready" }, created_at: "2026-10-10T10:01:00Z" },
     ],
-    "/deployments": [
-      { id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW },
-      { id: 10, sha: SECOND, created_at: "2026-10-10T10:20:00Z", ...PREVIEW },
-    ],
+    // Found by commit, as the hosting integration records the commit as the ref.
+    "/deployments": (query: URLSearchParams) =>
+      query.get("sha") === FIRST
+        ? [{ id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW }]
+        : [{ id: 10, sha: SECOND, created_at: "2026-10-10T10:20:00Z", ...PREVIEW }],
     "/deployments/9/statuses": [
       { state: "success", created_at: "2026-10-10T10:09:00Z" },
       { state: "in_progress", created_at: "2026-10-10T10:07:00Z" },
@@ -204,19 +205,28 @@ describe("collectFacts", () => {
   });
 
   describe("preview", () => {
-    it("takes the earliest successful deployment status and the commit it was built from", async () => {
+    it("takes the oldest deployment's success, and the commit it was built from", async () => {
       const routes = happyRoutes();
-      (routes["/deployments"] as unknown[]).reverse();
+      routes["/deployments"] = (query: URLSearchParams) =>
+        query.get("sha") === FIRST
+          ? [
+              { id: 12, sha: FIRST, created_at: "2026-10-10T10:08:00Z", ...PREVIEW },
+              { id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW },
+            ]
+          : [];
+      routes["/deployments/12/statuses"] = [
+        { state: "success", created_at: "2026-10-10T10:30:00Z" },
+      ];
       const { run } = setup(routes);
       const [request] = (await run()).requests;
       expect(request.previewReadyAt).toBe("2026-10-10T10:09:00Z");
       expect(request.previewSha).toBe(FIRST);
     });
 
-    it("ignores deployments of commits that are not on the pull request", async () => {
+    it("ignores a deployment of a different commit than the one asked for", async () => {
       const routes = happyRoutes();
-      routes["/deployments"] = [
-        { id: 11, sha: "9".repeat(40), created_at: "2026-10-10T10:01:00Z" },
+      routes["/deployments"] = () => [
+        { id: 11, sha: "9".repeat(40), created_at: "2026-10-10T10:01:00Z", ...PREVIEW },
       ];
       routes["/deployments/11/statuses"] = [
         { state: "success", created_at: "2026-10-10T10:02:00Z" },
@@ -578,7 +588,7 @@ describe("collectFacts: limits, retries and unusual data", () => {
     expect(await setup(routes).run()).toMatchObject({ tooBusy: 1, unreadable: 0, requests: [] });
   });
 
-  it("treats too many events as an unknown approval time and keeps the request", async () => {
+  it("reports a request with too many events rather than shrinking one sample", async () => {
     const routes = happyRoutes();
     routes["/issues/1/events"] = () =>
       Array.from({ length: 100 }, () => ({
@@ -586,12 +596,35 @@ describe("collectFacts: limits, retries and unusual data", () => {
         label: { name: "other" },
         created_at: "2026-10-10T10:01:00Z",
       }));
-    const result = await setup(routes).run();
-    expect(result.tooBusy).toBe(0);
-    expect(result.requests[0]).toMatchObject({ approvedAt: null, previewSha: FIRST });
+    expect(await setup(routes).run()).toMatchObject({ tooBusy: 1, unreadable: 0, requests: [] });
   });
 
   describe("previews", () => {
+    it("finds deployments by commit, never by branch name", async () => {
+      const { calls, run } = setup(happyRoutes());
+      await run();
+      const lookups = calls.filter((call) => call.path === "/deployments");
+      expect(lookups.length).toBeGreaterThan(0);
+      for (const lookup of lookups) {
+        expect(lookup.query.get("sha")).toMatch(/^[0-9a-f]{40}$/);
+        expect(lookup.query.has("ref")).toBe(false);
+      }
+    });
+
+    it("takes the first successful preview from a later commit when the first never had one", async () => {
+      const routes = happyRoutes();
+      routes["/deployments"] = (query: URLSearchParams) =>
+        query.get("sha") === SECOND
+          ? [{ id: 10, sha: SECOND, created_at: "2026-10-10T10:20:00Z", ...PREVIEW }]
+          : [];
+      routes["/deployments/10/statuses"] = [
+        { state: "success", created_at: "2026-10-10T10:22:00Z" },
+      ];
+      const [request] = (await setup(routes).run()).requests;
+      expect(request.previewSha).toBe(SECOND);
+      expect(request.previewReadyAt).toBe("2026-10-10T10:22:00Z");
+    });
+
     it("looks past failed deployments and stops at the first one with a success", async () => {
       const routes = happyRoutes();
       const stamp = (minute: number) => `2026-10-10T10:${String(minute).padStart(2, "0")}:00Z`;
@@ -653,6 +686,23 @@ describe("collectFacts: limits, retries and unusual data", () => {
     const routes = happyRoutes();
     routes["/pulls"] = [pull(1, { user: { login: APP, type: "User" } })];
     expect((await setup(routes).run()).requests[0].hasPull).toBe(false);
+  });
+
+  it("drops a request in progress when the deadline passes during it", async () => {
+    let now = 1_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const routes = happyRoutes();
+      routes["/pulls/101/commits"] = () => {
+        now = 5_000;
+        return [{ sha: FIRST, author: { login: APP } }];
+      };
+      const result = await setup(routes, { deadline: 2_000 }).run();
+      expect(result.stoppedEarly).toBe(true);
+      expect(result.requests).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("stops before the next request once the deadline has passed", async () => {

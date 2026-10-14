@@ -26,7 +26,9 @@ const PAGE = 100;
 /** Pages read for one list of commits, comments or events; more is "too busy" to read safely. */
 const MAX_PAGES = 5;
 const MAX_ISSUE_PAGES = 10;
-/** Deployments examined per request, oldest first: the first preview is among them. */
+/** Commits examined per request for a preview, oldest first: the first preview is among them. */
+const MAX_PREVIEW_COMMITS = 10;
+/** Deployments examined per commit, oldest first. */
 const MAX_DEPLOYMENTS = 10;
 const PORTAL_LABEL = "portal-request";
 const APPROVAL_LABEL = "approved-by-human";
@@ -95,10 +97,17 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
   const log = options.log ?? (() => {});
   let calls = 0;
 
-  /** One read. Retried once on a network error or 502/503/504; every attempt counts. */
+  /**
+   * One read. Retried once on a network error or 502/503/504; every attempt
+   * counts. Once the budget or the deadline is used up, no further call is made
+   * (a request in progress is dropped), so the report is always written.
+   */
   async function get(operation: string, path: string): Promise<unknown> {
     for (let attempt = 1; ; attempt += 1) {
       if (calls >= options.callBudget) throw new BudgetExceeded();
+      if (options.deadline !== undefined && Date.now() > options.deadline) {
+        throw new BudgetExceeded();
+      }
       calls += 1;
       let response: Response;
       try {
@@ -184,30 +193,37 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
   }
 
   /**
-   * The first successful preview of the pull request's commits: the oldest
-   * deployment, made by a bot and not to production, that has a success status.
+   * The first successful preview of the pull request's commits, oldest commit
+   * first: the oldest deployment of the commit, made by a bot and not to
+   * production, that has a success status. Deployments are found by commit,
+   * as the tracking page does: the hosting integration records the commit as
+   * the deployment's ref, not the branch name.
    */
   async function firstPreview(
-    branch: string,
-    shas: Set<string>,
+    commits: CommitFact[],
   ): Promise<{ readyAt: string; sha: string } | null> {
-    const deployments = (await list("deployments.list", `/deployments?ref=${branch}`))
-      .filter(
-        (deployment) =>
-          shas.has(text(deployment.sha)) &&
-          typeof deployment.id === "number" &&
-          deployment.production_environment !== true &&
-          record(deployment.creator).type === "Bot",
-      )
-      .sort((a, b) => time(a.created_at) - time(b.created_at))
-      .slice(0, MAX_DEPLOYMENTS);
-    for (const deployment of deployments) {
-      const statuses = await list("deployments.statuses", `/deployments/${deployment.id}/statuses`);
-      const successes = statuses
-        .filter((status) => status.state === "success" && Number.isFinite(time(status.created_at)))
-        .sort((a, b) => time(a.created_at) - time(b.created_at));
-      if (successes[0]) {
-        return { readyAt: text(successes[0].created_at), sha: text(deployment.sha) };
+    for (const commit of commits.slice(0, MAX_PREVIEW_COMMITS)) {
+      const deployments = (await list("deployments.list", `/deployments?sha=${commit.sha}`))
+        .filter(
+          (deployment) =>
+            deployment.sha === commit.sha &&
+            typeof deployment.id === "number" &&
+            deployment.production_environment !== true &&
+            record(deployment.creator).type === "Bot",
+        )
+        .sort((a, b) => time(a.created_at) - time(b.created_at))
+        .slice(0, MAX_DEPLOYMENTS);
+      for (const deployment of deployments) {
+        const statuses = await list(
+          "deployments.statuses",
+          `/deployments/${deployment.id}/statuses`,
+        );
+        const successes = statuses
+          .filter(
+            (status) => status.state === "success" && Number.isFinite(time(status.created_at)),
+          )
+          .sort((a, b) => time(a.created_at) - time(b.created_at));
+        if (successes[0]) return { readyAt: text(successes[0].created_at), sha: commit.sha };
       }
     }
     return null;
@@ -263,18 +279,12 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
 
   /**
    * The last time approval was applied before the pull request opened, or null
-   * when unknown (including an event history too long to read safely).
+   * when there was none. An event history too long to read safely leaves the
+   * whole request out (reported as too busy) rather than shrinking one sample.
    */
   async function approvalTime(number: number, openedAt: string): Promise<string | null> {
     const opened = Date.parse(openedAt);
-    let events: Raw[];
-    try {
-      events = await list("issues.events", `/issues/${number}/events`);
-    } catch (error) {
-      if (error instanceof TooBusy) return null;
-      throw error;
-    }
-    const approvals = events
+    const approvals = (await list("issues.events", `/issues/${number}/events`))
       .filter(
         (event) =>
           event.event === "labeled" &&
@@ -323,7 +333,7 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
     if (commits.length === 0) return { ...empty, hasPull: true };
 
     const firstSha = commits[0].sha;
-    const preview = await firstPreview(branch, new Set(commits.map((commit) => commit.sha)));
+    const preview = await firstPreview(commits);
     return {
       ...empty,
       approvedAt: await approvalTime(number, text(pull.created_at)),
@@ -340,7 +350,15 @@ export async function collectFacts(options: CollectOptions): Promise<CollectResu
   let unreadable = 0;
   let tooBusy = 0;
   let stoppedEarly = false;
-  const { issues, truncated } = await listRequestIssues();
+  let issues: RequestIssue[];
+  let truncated: boolean;
+  try {
+    ({ issues, truncated } = await listRequestIssues());
+  } catch (error) {
+    if (!(error instanceof BudgetExceeded)) throw error;
+    // Out of time before the first read: nothing to report, and the report says so.
+    return { requests, unreadable, tooBusy, stoppedEarly: true, truncated: false };
+  }
   for (const issue of issues) {
     if (options.deadline !== undefined && Date.now() > options.deadline) {
       stoppedEarly = true;
