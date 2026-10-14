@@ -14,12 +14,43 @@ Submit a feature request, review an AI-generated plan, and get a tested, reviewe
 
 Submissions are public. Don't enter confidential information, personal data or secrets.
 
+## Repository layout
+
+| Path                        | What it holds                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app`                   | The Next.js app: the request form, the request tracking pages and the submission API                                             |
+| `src/app/demos`             | The only place the coding agent writes: one folder per request                                                                   |
+| `src/lib`, `src/components` | App logic (GitHub access, bot check, storage, request handling) and UI components                                                |
+| `agents/`                   | Scripts the workflows run: planner, approval gate, coder, reviewer, scope check and metrics, with shared helpers in `agents/lib` |
+| `scripts/cleanup`           | The screenshot cleanup job                                                                                                       |
+| `.github/workflows`         | The workflows below. `.github/CODEOWNERS` covers them                                                                            |
+| `AGENTS.md`                 | Guidance the agents read before planning and building                                                                            |
+| `docs/setup.md`             | The [setup guide](docs/setup.md) for running your own copy                                                                       |
+
+## Workflows
+
+| Workflow             | Runs when                                                             | What it does                                                                   |
+| -------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| CI                   | A pull request into `develop` or `main`                               | Lint, typecheck, tests, build, pre-commit hooks and a secret scan              |
+| Content policy       | A pull request into `develop` or `main`                               | Checks files, commits and the pull request text against a private pattern list |
+| Write scope          | A pull request into `develop` or `main` (the base branch's code)      | Lets agent pull requests add files only inside their own demo folder           |
+| Plan request         | A portal request issue opens, or `changes-requested` is applied to it | Posts an implementation plan, or one revised plan                              |
+| Build request        | `approved-by-human` is applied to a request                           | Generates the demo and opens a pull request from `request-<number>`            |
+| Review request       | An agent pull request opens or gets a new commit                      | Posts an advisory automated review                                             |
+| Revise request       | `changes-requested` is applied to an agent pull request               | Pushes one revision                                                            |
+| CI breaker           | CI finishes on an agent pull request                                  | Hands the pull request to a human after two failed runs in a row               |
+| Clean up screenshots | Daily                                                                 | Deletes screenshots after 90 days (when switched on)                           |
+| Success metrics      | Weekly, or by hand                                                    | Writes request-to-preview time and agent outcomes to the run summary           |
+
+Workflows triggered by issues, schedules or `pull_request_target` run from the default branch, so they only start once they are on `main`.
+
 ## Requirements
 
 - Node.js 24 (see `.nvmrc`)
 - pnpm 12, via Corepack: `corepack enable pnpm`
 - A POSIX shell for the `pnpm` scripts (macOS, Linux, WSL or Git Bash)
 - [pre-commit](https://pre-commit.com), for contributors (`pipx install pre-commit` or `uv tool install pre-commit`)
+- To run your own copy you also need GitHub, Vercel, Cloudflare and model provider accounts; the [setup guide](docs/setup.md) walks through them
 
 ## Getting started
 
@@ -45,7 +76,7 @@ pnpm dev                     # http://localhost:3000
 
 ## Configuration
 
-Nothing secret is committed. For a step-by-step walkthrough of creating all of this, see the [setup guide](docs/setup.md). On a fork, the agent automations stay off until its owner adds their own values below (see "Running your own copy"). Items marked _planned_ arrive with later changes, and their names may still change. For local development, put Vercel values in `.env.local` (see `.env.example`).
+Nothing secret is committed. For a step-by-step walkthrough of creating all of this, see the [setup guide](docs/setup.md). On a fork, the agent automations stay off until its owner adds their own values below (see "Running your own copy"). For local development, put Vercel values in `.env.local` (see `.env.example`).
 
 Set sensitive Vercel values for the **Production** environment only, never Preview: preview deployments build code from pull requests, including agent-written ones.
 
@@ -163,11 +194,17 @@ To take a screenshot down immediately:
 2. Edit the request issue and replace the screenshot link with "removed".
 3. Browsers may keep a cached copy for up to an hour.
 
+## Security
+
+- Requests, plans, pull requests and screenshots are public.
+- Agents never merge, and the coding agent can only write inside its own demo folder on `request-*` branches (see the rulesets in the [setup guide](docs/setup.md#410-branch-and-tag-rules)).
+- Approving a plan is not a code review: read the whole diff before you open a preview or merge. The [security model](docs/setup.md#9-security-model-and-your-responsibilities) lists what you are responsible for if you run your own copy.
+
 ## Contributing
 
 - When forking, include all branches (GitHub copies only `main` by default) and branch from `develop`. Open pull requests with `develop` as the base branch (GitHub defaults new PRs to `main`, so change the base). `main` only receives releases. Both branches are protected.
 - Set up once per clone: `corepack enable pnpm && pnpm install`, then `pre-commit install`. The hooks check formatting (with the project's Prettier) and workflow files, and scan for secrets.
-- CI runs lint, typecheck, tests, build, the pre-commit hooks, a secret scan and a content policy check on pull requests into `develop` and `main`.
+- CI runs lint, typecheck, tests, build, the pre-commit hooks, a secret scan, a content policy check and the write scope check on pull requests into `develop` and `main`. All of them must pass before merging.
 - Agent-written demos (`request-*` branches) are untrusted code: review them before running them locally, or run them in a sandbox. CI runs their tests without secrets.
 - Commits in this public repo show the author's name and email. Use a personal address or your GitHub noreply address (`<id>+<username>@users.noreply.github.com`), set it with `git config user.email`.
 
