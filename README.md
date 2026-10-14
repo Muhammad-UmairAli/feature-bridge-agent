@@ -81,9 +81,22 @@ A fork or a fresh copy runs only CI, the write-scope check and the content polic
 | Planning and building ("Plan request", "Build request") | `PORTAL_BOT_LOGIN`                                | `LLM_*` and the `agents` environment; the agent App settings and `AGENT_APP_LOGIN` to publish; `APPROVER_ALLOWLIST` to accept approvals |
 | Automated review, revisions, CI breaker                 | `AGENT_APP_LOGIN`                                 | `LLM_*` and the `agents` environment (review, revisions); the agent App settings and `APPROVER_ALLOWLIST` (revisions)                   |
 | Screenshot cleanup                                      | `SCREENSHOT_CLEANUP` = `on`                       | `BLOB_READ_WRITE_TOKEN` in the `screenshot-cleanup` environment                                                                         |
+| Success metrics                                         | `PORTAL_BOT_LOGIN` and `AGENT_APP_LOGIN`          | Nothing else: it uses the workflow's read-only token and no secrets                                                                     |
 | Content policy                                          | Always on for pull requests within the repository | `CONTENT_POLICY_PATTERNS`; without it the check fails and says so. Pull requests from forks skip it with a warning                      |
 
 An empty `APPROVER_ALLOWLIST` means nobody's approval or change request is accepted: the label is removed again. Workflows that hold a key run from the base branch, and their jobs are skipped unless the pull request comes from this repository, is authored by the coding agent App and uses a `request-*` branch. They never run pull request code.
+
+### Success metrics
+
+The "Success metrics" workflow runs every Monday and on demand (Actions tab, "Run workflow", optionally with a number of days). It reads request issues, their agent pull requests, previews, CI runs and review verdicts, and writes a report to the run's summary:
+
+- Median time from request to preview, and from approval to preview, with the share within 15 minutes.
+- The share of previewed requests with no human-authored commit before the first preview.
+- The share of agent pull requests whose first commit passed CI and the automated review.
+
+The report contains counts and percentages only, never request text, and the workflow changes nothing. It reads the last 90 days by default, newest requests first, at most 100 requests and 500 GitHub calls per run (about half of the hourly allowance the workflow token shares with the agents), and stops starting new requests after 12 minutes. When a limit cuts the window short, or requests can't be read, the report says so and from which date it covers; the oldest requests are the ones left out. The run fails if a fifth or more of the requests can't be read. Requests with an agent pull request but no preview yet are listed in a note and are in neither M1 nor M2. The definitions are working assumptions, listed at the end of every report.
+
+GitHub switches off scheduled workflows in a public repository after 60 days without repository activity; re-enable it from the Actions tab if that happens.
 
 ### Setting up the GitHub App
 
