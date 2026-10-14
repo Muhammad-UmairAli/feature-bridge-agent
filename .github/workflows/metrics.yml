@@ -1,0 +1,59 @@
+name: Success metrics
+
+# Reports request-to-preview time, the share of previewed requests with no
+# human code edits, and the share of agent pull requests that pass CI and the
+# automated review first time, as a job summary. See agents/metrics/.
+#
+# Read-only: the workflow's own token (no secrets, no environment) reads issues,
+# pull requests, deployments and workflow runs, and the job changes nothing. The
+# report holds counts and percentages only. Off until the repository variables
+# PORTAL_BOT_LOGIN and AGENT_APP_LOGIN are both set.
+on:
+  schedule:
+    - cron: "23 6 * * 1" # weekly, Monday 06:23 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: How many days back to read (1 to 365)
+        type: string
+        default: "90"
+
+permissions: {}
+
+concurrency:
+  group: metrics
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash # bash --noprofile --norc -eo pipefail
+
+jobs:
+  report:
+    name: Compute success metrics
+    if: vars.PORTAL_BOT_LOGIN != '' && vars.AGENT_APP_LOGIN != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # the scripts
+      issues: read # requests, their events and review comments
+      pull-requests: read # the agent pull requests and their commits
+      deployments: read # previews
+      actions: read # CI runs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Nothing is installed: the scripts use the standard library only.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Compute
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PORTAL_BOT_LOGIN: ${{ vars.PORTAL_BOT_LOGIN }}
+          AGENT_APP_LOGIN: ${{ vars.AGENT_APP_LOGIN }}
+          # Empty on scheduled runs, which use the default window.
+          METRICS_DAYS: ${{ inputs.days }}
+        run: node agents/metrics/run.mts

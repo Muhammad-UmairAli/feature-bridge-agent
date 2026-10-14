@@ -55,6 +55,10 @@ jobs:
         run: |
           out=$(env -i PATH="$PATH" node agents/coder/run-revise.mts 2>&1) || true
           grep -q '"event":"revise.misconfigured"' <<<"$out"
+      - name: Metrics script loads without dependencies
+        run: |
+          out=$(env -i PATH="$PATH" node agents/metrics/run.mts 2>&1) || true
+          grep -q 'GITHUB_REPOSITORY is not set' <<<"$out"
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
