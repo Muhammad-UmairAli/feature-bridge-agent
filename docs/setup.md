@@ -32,7 +32,7 @@ You must be an **admin** of the repository: several steps change Actions setting
 
 Two properties shape the setup:
 
-- **Workflows triggered by issues, schedules and `pull_request_target` run from the default branch.** Nothing but CI and the content policy runs until the workflows are on `main`.
+- **Workflows triggered by issues, schedules and `pull_request_target` run from the default branch.** Until the workflows are on `main`, only CI and the content policy (which use `pull_request`) run. Write scope is a `pull_request_target` workflow, so it waits for `main` too.
 - **Secrets are split by job.** The model key lives in the `agents` environment, the coding agent key in `agent-app`, the Blob token in `screenshot-cleanup`. Each environment can only be used from `main`. That limits which jobs can read each secret, but anyone who can merge to `main` can reach all three, so `main` must be protected.
 
 ## 3. Checklist, in order
@@ -59,7 +59,7 @@ The full reference for every setting is the table in the [README's Configuration
 Set a shell variable for the commands below:
 
 ```bash
-repo=<owner>/<repo>      # your fork, for example octocat/feature-bridge-agent
+repo="your-account/your-fork"      # replace with your fork, for example octocat/feature-bridge-agent
 ```
 
 ### 4.1 Fork the repository
