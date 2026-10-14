@@ -7,4 +7,4 @@ pnpm-lock.yaml
 # Agent-written demos are not reformatted: the build job that holds the model
 # key installs nothing, so it cannot run Prettier, and the formatting hook
 # would otherwise fail every agent pull request. ESLint still checks them.
-src/app/demos/request-*/
+src/app/demos/request-[0-9]*/

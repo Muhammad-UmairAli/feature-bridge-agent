@@ -182,6 +182,12 @@ the "Build request" workflow after the gate accepts an approval:
 - Publish (agent App key only, nothing installed) checks the bundle and the approval again,
   publishes, comments with the pull request number, and revokes its token.
 
+Agent-written demo folders (`src/app/demos/request-<number>/`) are listed in `.prettierignore`:
+the jobs that run Prettier hold no key and the job that holds the key installs nothing, so the
+files can't be formatted before they are committed, and the formatting hook would otherwise
+fail every agent pull request. ESLint, typecheck, tests and the write-scope check still apply.
+The generated files are cleaned of trailing whitespace, which the repository's other hooks reject.
+
 Both key-holding jobs refuse re-runs. A withdrawn or superseded approval stops quietly;
 anything else posts a fixed comment and applies `escalated-to-human`, and a crashed or
 cancelled job is handed over by a final plain-`gh` step. The gate refuses new approvals
