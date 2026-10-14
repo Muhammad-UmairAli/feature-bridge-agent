@@ -2,7 +2,7 @@
 
 Submit a feature request, review an AI-generated plan, and get a tested, reviewed preview of the feature.
 
-> **Status: early development.** The app foundation, tooling and CI are in place. The request form, agents and deployments are being built next, so most of the flow below isn't live yet.
+> **Status: proof of concept.** The request form, planning agent, approval step, coding agent, automated review and previews are all built. Expect rough edges. To run your own copy, follow the [setup guide](docs/setup.md).
 
 ## How it works
 
@@ -45,7 +45,7 @@ pnpm dev                     # http://localhost:3000
 
 ## Configuration
 
-Nothing secret is committed. On a fork, the agent automations stay off until its owner adds their own values below (see "Running your own copy"). Items marked _planned_ arrive with later changes, and their names may still change. For local development, put Vercel values in `.env.local` (see `.env.example`).
+Nothing secret is committed. For a step-by-step walkthrough of creating all of this, see the [setup guide](docs/setup.md). On a fork, the agent automations stay off until its owner adds their own values below (see "Running your own copy"). Items marked _planned_ arrive with later changes, and their names may still change. For local development, put Vercel values in `.env.local` (see `.env.example`).
 
 Set sensitive Vercel values for the **Production** environment only, never Preview: preview deployments build code from pull requests, including agent-written ones.
 
