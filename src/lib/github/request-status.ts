@@ -8,7 +8,8 @@
  * `head=<owner>:request-N` excludes forks, and the PR must also be bot-authored
  * from this repository, so outsiders can't change what the page shows.
  *
- * Each page view costs at most 4 GitHub calls. Concurrent views of the same id
+ * Each page view costs at most 6 GitHub calls (4 in the usual case), plus an
+ * occasional token refresh. Concurrent views of the same id
  * share one lookup, results are cached (not-found results for longer), and a
  * short circuit breaker pauses lookups after rate limiting or an outage, so
  * anonymous browsing can't exhaust the App's rate limit that submissions use.
@@ -152,7 +153,18 @@ async function findPull(
   };
 }
 
-/** Newest non-production, bot-created deployment for the commit, if its newest status succeeded. */
+/** Deployments listed for the commit (newest first), and how many of them get a status lookup. */
+const DEPLOYMENTS_LISTED = 10;
+const MAX_STATUS_LOOKUPS = 3;
+/** Environments this repository's own workflow jobs run in: their deployment records are never previews. */
+const WORKFLOW_ENVIRONMENTS = new Set(["agents", "agent-app", "screenshot-cleanup"]);
+
+/**
+ * The newest non-production, bot-created deployment of the commit whose newest
+ * status succeeded with a trusted preview URL. Records that workflow jobs make
+ * in their GitHub environments have no URL and would otherwise hide the
+ * preview, so they are skipped without a status lookup.
+ */
 async function findPreviewUrl(
   config: GitHubAppConfig,
   token: string,
@@ -162,27 +174,50 @@ async function findPreviewUrl(
 ): Promise<string | null> {
   const repo = `/repos/${config.owner}/${config.repo}`;
   const deployments = await githubRequest<
-    { id?: unknown; production_environment?: unknown; creator?: { type?: unknown } | null }[]
-  >(`${repo}/deployments?sha=${sha}&per_page=1`, {
+    | {
+        id?: unknown;
+        environment?: unknown;
+        production_environment?: unknown;
+        creator?: { type?: unknown } | null;
+      }[]
+    | null
+  >(`${repo}/deployments?sha=${sha}&per_page=${DEPLOYMENTS_LISTED}`, {
     auth: token,
     operation: "deployments.list",
     fetchImpl,
   });
-  const deployment = Array.isArray(deployments) ? deployments[0] : undefined;
-  if (
-    !deployment ||
-    typeof deployment.id !== "number" ||
-    deployment.production_environment === true ||
-    deployment.creator?.type !== "Bot"
-  ) {
-    return null;
+  let lookups = 0;
+  for (const deployment of (Array.isArray(deployments) ? deployments : []).slice(
+    0,
+    DEPLOYMENTS_LISTED,
+  )) {
+    if (
+      typeof deployment?.id !== "number" ||
+      deployment.production_environment === true ||
+      deployment.creator?.type !== "Bot" ||
+      WORKFLOW_ENVIRONMENTS.has(String(deployment.environment))
+    ) {
+      continue;
+    }
+    if (lookups >= MAX_STATUS_LOOKUPS) break;
+    lookups += 1;
+    let statuses: { state?: unknown; environment_url?: unknown }[];
+    try {
+      statuses = await githubRequest<{ state?: unknown; environment_url?: unknown }[]>(
+        `${repo}/deployments/${deployment.id}/statuses?per_page=1`,
+        { auth: token, operation: "deployments.statuses", fetchImpl },
+      );
+    } catch (error) {
+      // Rate limits and outages (503) stop the lookup; one odd deployment must not hide the others.
+      if (error instanceof GitHubError && error.status !== 503) continue;
+      throw error;
+    }
+    const latest = Array.isArray(statuses) ? statuses[0] : undefined;
+    const url =
+      latest?.state === "success" ? safePreviewUrl(latest.environment_url, hostSuffixes) : null;
+    if (url) return url;
   }
-  const statuses = await githubRequest<{ state?: unknown; environment_url?: unknown }[]>(
-    `${repo}/deployments/${deployment.id}/statuses?per_page=1`,
-    { auth: token, operation: "deployments.statuses", fetchImpl },
-  );
-  const latest = Array.isArray(statuses) ? statuses[0] : undefined;
-  return latest?.state === "success" ? safePreviewUrl(latest.environment_url, hostSuffixes) : null;
+  return null;
 }
 
 /** Best effort within a time budget; any failure just means "no preview link". */

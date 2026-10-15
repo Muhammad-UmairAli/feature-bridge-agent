@@ -11,6 +11,7 @@ const APP = "coder-app[bot]";
 const TOKEN = "fake-github-token-for-tests";
 const FIRST = "1".repeat(40);
 const SECOND = "2".repeat(40);
+const PREVIEW_URL = "https://feature-bridge-agent-abc123-team.vercel.app";
 
 /** What a preview deployment made by the hosting integration looks like. */
 const PREVIEW = { creator: { type: "Bot" }, production_environment: false };
@@ -54,10 +55,12 @@ function happyRoutes(): Routes {
         ? [{ id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW }]
         : [{ id: 10, sha: SECOND, created_at: "2026-10-10T10:20:00Z", ...PREVIEW }],
     "/deployments/9/statuses": [
-      { state: "success", created_at: "2026-10-10T10:09:00Z" },
+      { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:09:00Z" },
       { state: "in_progress", created_at: "2026-10-10T10:07:00Z" },
     ],
-    "/deployments/10/statuses": [{ state: "success", created_at: "2026-10-10T10:22:00Z" }],
+    "/deployments/10/statuses": [
+      { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:22:00Z" },
+    ],
     "/actions/runs": {
       workflow_runs: [
         {
@@ -215,7 +218,7 @@ describe("collectFacts", () => {
             ]
           : [];
       routes["/deployments/12/statuses"] = [
-        { state: "success", created_at: "2026-10-10T10:30:00Z" },
+        { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:30:00Z" },
       ];
       const { run } = setup(routes);
       const [request] = (await run()).requests;
@@ -229,7 +232,7 @@ describe("collectFacts", () => {
         { id: 11, sha: "9".repeat(40), created_at: "2026-10-10T10:01:00Z", ...PREVIEW },
       ];
       routes["/deployments/11/statuses"] = [
-        { state: "success", created_at: "2026-10-10T10:02:00Z" },
+        { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:02:00Z" },
       ];
       const { run } = setup(routes);
       const [request] = (await run()).requests;
@@ -600,6 +603,41 @@ describe("collectFacts: limits, retries and unusual data", () => {
   });
 
   describe("previews", () => {
+    it("does not take a workflow environment record (no URL) for the preview", async () => {
+      const routes = happyRoutes();
+      routes["/deployments"] = (query: URLSearchParams) =>
+        query.get("sha") === FIRST
+          ? [
+              { id: 8, sha: FIRST, created_at: "2026-10-10T10:01:00Z", ...PREVIEW },
+              { id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW },
+            ]
+          : [];
+      // The environment record succeeded first but has no environment URL.
+      routes["/deployments/8/statuses"] = [
+        { state: "success", created_at: "2026-10-10T10:02:00Z" },
+      ];
+      const [request] = (await setup(routes).run()).requests;
+      expect(request.previewReadyAt).toBe("2026-10-10T10:09:00Z");
+    });
+
+    it("ignores a success status whose environment URL is empty or not a string", async () => {
+      for (const url of ["", 5, null]) {
+        const routes = happyRoutes();
+        routes["/deployments"] = (query: URLSearchParams) =>
+          query.get("sha") === FIRST
+            ? [
+                { id: 8, sha: FIRST, created_at: "2026-10-10T10:01:00Z", ...PREVIEW },
+                { id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW },
+              ]
+            : [];
+        routes["/deployments/8/statuses"] = [
+          { state: "success", environment_url: url, created_at: "2026-10-10T10:02:00Z" },
+        ];
+        const [request] = (await setup(routes).run()).requests;
+        expect(request.previewReadyAt).toBe("2026-10-10T10:09:00Z");
+      }
+    });
+
     it("finds deployments by commit, never by branch name", async () => {
       const { calls, run } = setup(happyRoutes());
       await run();
@@ -618,7 +656,7 @@ describe("collectFacts: limits, retries and unusual data", () => {
           ? [{ id: 10, sha: SECOND, created_at: "2026-10-10T10:20:00Z", ...PREVIEW }]
           : [];
       routes["/deployments/10/statuses"] = [
-        { state: "success", created_at: "2026-10-10T10:22:00Z" },
+        { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:22:00Z" },
       ];
       const [request] = (await setup(routes).run()).requests;
       expect(request.previewSha).toBe(SECOND);
@@ -637,7 +675,9 @@ describe("collectFacts: limits, retries and unusual data", () => {
       for (let id = 20; id <= 24; id += 1) {
         routes[`/deployments/${id}/statuses`] = [{ state: "failure", created_at: stamp(30) }];
       }
-      routes["/deployments/25/statuses"] = [{ state: "success", created_at: stamp(40) }];
+      routes["/deployments/25/statuses"] = [
+        { state: "success", environment_url: PREVIEW_URL, created_at: stamp(40) },
+      ];
       const { calls, run } = setup(routes);
       const [request] = (await run()).requests;
       expect(request.previewReadyAt).toBe(stamp(40));
@@ -657,10 +697,10 @@ describe("collectFacts: limits, retries and unusual data", () => {
         },
       ];
       routes["/deployments/30/statuses"] = [
-        { state: "success", created_at: "2026-10-10T10:02:00Z" },
+        { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:02:00Z" },
       ];
       routes["/deployments/31/statuses"] = [
-        { state: "success", created_at: "2026-10-10T10:03:00Z" },
+        { state: "success", environment_url: PREVIEW_URL, created_at: "2026-10-10T10:03:00Z" },
       ];
       const [request] = (await setup(routes).run()).requests;
       expect(request.previewReadyAt).toBeNull();
