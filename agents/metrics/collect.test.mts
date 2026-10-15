@@ -620,6 +620,24 @@ describe("collectFacts: limits, retries and unusual data", () => {
       expect(request.previewReadyAt).toBe("2026-10-10T10:09:00Z");
     });
 
+    it("ignores a success status whose environment URL is empty or not a string", async () => {
+      for (const url of ["", 5, null]) {
+        const routes = happyRoutes();
+        routes["/deployments"] = (query: URLSearchParams) =>
+          query.get("sha") === FIRST
+            ? [
+                { id: 8, sha: FIRST, created_at: "2026-10-10T10:01:00Z", ...PREVIEW },
+                { id: 9, sha: FIRST, created_at: "2026-10-10T10:06:00Z", ...PREVIEW },
+              ]
+            : [];
+        routes["/deployments/8/statuses"] = [
+          { state: "success", environment_url: url, created_at: "2026-10-10T10:02:00Z" },
+        ];
+        const [request] = (await setup(routes).run()).requests;
+        expect(request.previewReadyAt).toBe("2026-10-10T10:09:00Z");
+      }
+    });
+
     it("finds deployments by commit, never by branch name", async () => {
       const { calls, run } = setup(happyRoutes());
       await run();

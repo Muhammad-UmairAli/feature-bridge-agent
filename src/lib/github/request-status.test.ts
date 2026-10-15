@@ -229,6 +229,87 @@ describe("getRequestStatus", () => {
     expect(githubCalls(fetchImpl)).toHaveLength(4);
   });
 
+  it("carries on to the next deployment when one status lookup fails, but stops on an outage", async () => {
+    const deployments = () =>
+      Response.json([
+        { id: 100, production_environment: false, creator: { type: "Bot" } },
+        { id: 99, production_environment: false, creator: { type: "Bot" } },
+      ]);
+    const good = () => Response.json([{ state: "success", environment_url: PREVIEW }]);
+
+    const oddOne = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: deployments,
+      [`GET ${REPO}/deployments/100/statuses`]: () => new Response("", { status: 404 }),
+      [`GET ${REPO}/deployments/99/statuses`]: good,
+    });
+    expect((await get(oddOne))?.previewUrl).toBe(PREVIEW);
+
+    clearRequestStatusCache();
+    const outage = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: deployments,
+      [`GET ${REPO}/deployments/100/statuses`]: () => new Response("", { status: 503 }),
+      [`GET ${REPO}/deployments/99/statuses`]: good,
+    });
+    expect((await get(outage))?.previewUrl).toBeNull();
+    expect(githubCalls(outage).some(([url]) => String(url).includes("/deployments/99/"))).toBe(
+      false,
+    );
+  });
+
+  it("skips records from workflow environments without a status call, however many there are", async () => {
+    const workflowRecords = [200, 201, 202, 203, 204, 205].map((id) => ({
+      id,
+      environment: id % 2 === 0 ? "agents" : "agent-app",
+      production_environment: false,
+      creator: { type: "Bot" },
+    }));
+    const fetchImpl = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: () =>
+        Response.json([
+          ...workflowRecords,
+          {
+            id: 99,
+            environment: "Preview",
+            production_environment: false,
+            creator: { type: "Bot" },
+          },
+        ]),
+      [`GET ${REPO}/deployments/99/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: PREVIEW }]),
+    });
+    const view = await get(fetchImpl);
+    expect(view?.previewUrl).toBe(PREVIEW);
+    expect(githubCalls(fetchImpl)).toHaveLength(4);
+    expect(githubCalls(fetchImpl).some(([url]) => String(url).includes("/deployments/20"))).toBe(
+      false,
+    );
+  });
+
+  it("falls through a failed deployment and an off-host URL to an older trusted preview", async () => {
+    const preview = (id: number) => ({
+      id,
+      environment: "Preview",
+      production_environment: false,
+      creator: { type: "Bot" },
+    });
+    const fetchImpl = routes({
+      [`GET ${REPO}/pulls`]: () => Response.json([pull()]),
+      [`GET ${REPO}/deployments`]: () =>
+        Response.json([null, preview(103), preview(102), preview(101)]),
+      [`GET ${REPO}/deployments/103/statuses`]: () => Response.json([{ state: "failure" }]),
+      [`GET ${REPO}/deployments/102/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: "https://evil.example/" }]),
+      [`GET ${REPO}/deployments/101/statuses`]: () =>
+        Response.json([{ state: "success", environment_url: PREVIEW }]),
+    });
+    const view = await get(fetchImpl);
+    expect(view?.previewUrl).toBe(PREVIEW);
+    expect(githubCalls(fetchImpl)).toHaveLength(6);
+  });
+
   it("shows a merged PR as live without looking for a preview", async () => {
     const fetchImpl = routes({
       [`GET ${REPO}/issues/5`]: () => Response.json(issue({ state: "closed" })),

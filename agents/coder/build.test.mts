@@ -293,6 +293,36 @@ describe("runGenerate", () => {
     expect(details).toContain("makes network calls");
     expect(details).not.toContain("secret");
   });
+
+  it("lists at most five refusal reasons in the log", async () => {
+    const reply = [1, 2, 3, 4, 5, 6, 7]
+      .map((n) => `<<<FILE ${dir}file${n}.tsx>>>\nfetch("/x");\n${FILE_END}`)
+      .join("\n");
+    const deps = generateDeps(fakeGitHub(), fakeLlm(reply));
+    expect(await runGenerate(settings, deps)).toEqual({ kind: "failed" });
+    const failed = vi.mocked(deps.log).mock.calls.find(([, event]) => event === "build.failed");
+    expect(Number(failed?.[2]?.problems)).toBeGreaterThan(5);
+    expect(String(failed?.[2]?.details).split("; ")).toHaveLength(5);
+  });
+
+  it("logs refusal reasons as short printable text, whatever the model names its files", async () => {
+    const hostile = `${dir}${"\u00e9".repeat(150)}%41.tsx`;
+    const reply = [
+      `<<<FILE ${hostile}>>>\nfetch("/x");\n${FILE_END}`,
+      ...[1, 2, 3, 4, 5, 6, 7].map(
+        (n) => `<<<FILE ${dir}file${n}.tsx>>>\nfetch("/x");\n${FILE_END}`,
+      ),
+    ].join("\n");
+    const deps = generateDeps(fakeGitHub(), fakeLlm(reply));
+    expect(await runGenerate(settings, deps)).toEqual({ kind: "failed" });
+    const failed = vi.mocked(deps.log).mock.calls.find(([, event]) => event === "build.failed");
+    const details = String(failed?.[2]?.details);
+    expect(details.length).toBeLessThanOrEqual(500);
+    expect(details).toMatch(/^[\x20-\x7e]*$/);
+    expect(details).not.toContain("\u00e9");
+    expect(details.split("; ").length).toBeLessThanOrEqual(5);
+    expect(Number(failed?.[2]?.problems)).toBeGreaterThan(5);
+  });
 });
 
 describe("runCheck", () => {
