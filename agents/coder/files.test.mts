@@ -298,6 +298,44 @@ describe("validateFiles", () => {
       "literal strings starting with",
     ],
     [
+      "a storage key variable nothing reads",
+      withDemo(demo.replace("export const unused = KEY;\n", "")),
+      "a browser storage key in a variable nothing reads",
+    ],
+    [
+      "a typed template-literal key variable nothing reads",
+      withDemo(
+        demo
+          .replace(`const KEY = "demo:${SLUG}:count";`, `let key: string = \`demo:${SLUG}:count\`;`)
+          .replace("export const unused = KEY;\n", ""),
+      ),
+      "a browser storage key in a variable nothing reads",
+    ],
+    [
+      "a storage key variable used only as a JSX key prop name",
+      withDemo(
+        demo
+          .replace(`const KEY = "demo:${SLUG}:count";`, `const key = "demo:${SLUG}:count";`)
+          .replace(
+            "export const unused = KEY;\n",
+            "export const L = () => <ul>{[1].map((n) => <li key={n}>{n}</li>)}</ul>;\n",
+          ),
+      ),
+      "a browser storage key in a variable nothing reads",
+    ],
+    [
+      "an unread storage key variable named with $",
+      withDemo(demo.replace("const KEY", "const $key").replace("export const unused = KEY;\n", "")),
+      "a browser storage key in a variable nothing reads",
+    ],
+    [
+      "an unread storage key variable next to a longer name that is read",
+      withDemo(
+        demo.replace("export const unused = KEY;", "const KEY2 = 1;\nexport const unused = KEY2;"),
+      ),
+      "a browser storage key in a variable nothing reads",
+    ],
+    [
       "clearing storage",
       withDemo(`${demo}export const c = () => localStorage.clear();\n`),
       "uses clear on browser storage",
@@ -353,8 +391,27 @@ describe("validateFiles", () => {
       "router hooks",
       demo.replace('from "react";', 'from "react";\nimport { useRouter } from "next/navigation";'),
     ],
+    [
+      "an exported storage key constant (lint counts exports as used)",
+      demo.replace("const KEY", "export const KEY").replace("export const unused = KEY;\n", ""),
+    ],
+    ["a storage key variable named with $ that is read", demo.replaceAll("KEY", () => "$key")],
+    [
+      "a typed storage key variable that is read",
+      demo.replace("const KEY =", "const KEY: string ="),
+    ],
   ])("doesn't refuse %s", (_name, content) => {
     expect(validateFiles(withDemo(content), SLUG)).toEqual([]);
+  });
+
+  it("sends back unread storage key variables once, in fixed words that never name them", () => {
+    const content = demo.replace(
+      "export const unused = KEY;\n",
+      `const SECOND_KEY = "demo:${SLUG}:other";\n`,
+    );
+    expect(validateFiles(withDemo(content), SLUG)).toEqual([
+      `"${dir}demo.tsx": declares a browser storage key in a variable nothing reads (write the key as a literal in each storage call)`,
+    ]);
   });
 
   it("limits the number and size of files", () => {

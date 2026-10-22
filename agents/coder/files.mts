@@ -281,6 +281,12 @@ function checkFile(file: GeneratedFile, dir: string, slug: string, own: Set<stri
   return problems;
 }
 
+/** A `const`/`let`/`var` set to a string: export, name, type annotation and the value's start. */
+const STRING_VARIABLE =
+  /\b(export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(:[^=\n]{0,300})?=\s*["'`]([^"'`\n]{0,300})/g;
+/** An identifier being read: not a member (`.x`), not assigned or a JSX prop (`x=`; `x ==` reads). */
+const IDENTIFIER_READ = /(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$])(?!\s*=(?![=>]))/g;
+
 /** Browser storage: literal keys with the demo's prefix only; no clearing or index access. */
 function checkStorage(content: string, slug: string): string[] {
   const prefix = `demo:${slug}:`;
@@ -296,6 +302,28 @@ function checkStorage(content: string, slug: string): string[] {
   }
   if (/\b(?:localStorage|sessionStorage)\s*\[/.test(content)) {
     problems.push("uses index access on browser storage");
+  }
+  // Keys must be literals in each call, so a variable holding one is easy to leave unread.
+  // Catch that here, where the model gets a retry: lint would only catch it in the check
+  // job, which can't send problems back and stops the build. Exports count as read, as
+  // they do for lint. Best effort: a name that also appears in a comment counts as read.
+  const keyVariables = [...content.matchAll(STRING_VARIABLE)].filter(
+    ([, exported, , , value]) => !exported && value.startsWith(prefix),
+  );
+  if (keyVariables.length > 0) {
+    const reads = new Map<string, number>();
+    for (const [name] of content.matchAll(IDENTIFIER_READ)) {
+      reads.set(name, (reads.get(name) ?? 0) + 1);
+    }
+    // A typed declaration's own name is followed by ":" rather than "=", so it was counted.
+    const unread = keyVariables.some(
+      ([, , name, typed]) => (reads.get(name) ?? 0) - (typed ? 1 : 0) < 1,
+    );
+    if (unread) {
+      problems.push(
+        "declares a browser storage key in a variable nothing reads (write the key as a literal in each storage call)",
+      );
+    }
   }
   return [...new Set(problems)];
 }
