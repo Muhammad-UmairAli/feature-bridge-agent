@@ -44,6 +44,7 @@ The workflow writes `page.tsx` and `demo-loader.tsx` from fixed templates, and C
 - `demo.tsx` starts with `"use client"` and default-exports the demo component. It doesn't render an `<h1>` (the page has it) and doesn't export `metadata` or other page settings.
 - Keep any data static in the folder. Use only `react`, `next/link`, `useRouter`/`usePathname`/`useSearchParams` from `next/navigation`, `@/components/ui/*`, `@/lib/utils` and your own files; tests may also use `vitest` (`vi.fn`, `vi.spyOn` and fake timers) and `@testing-library/react`.
 - Code is plain ASCII with lines under 300 characters, no escaped or encoded strings, and no computed access to globals (`window[...]`, `globalThis`, `Reflect`).
+- Write each browser storage key as a literal in the storage call itself (`localStorage.getItem("demo:<slug>:count")`), not in a variable. Every import, variable and parameter must be used: an unused one fails the lint check, and a lint failure stops the build without a retry.
 
 ### Not allowed in demo code
 
